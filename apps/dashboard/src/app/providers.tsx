@@ -3,6 +3,7 @@
 import { ClerkProvider, useAuth } from '@clerk/nextjs';
 import { useEffect } from 'react';
 import { setClerkToken } from '@/lib/api';
+import { PostHogProvider } from '@/lib/posthog';
 
 function ClerkTokenSync() {
   const { getToken } = useAuth();
@@ -24,8 +25,10 @@ function ClerkTokenSync() {
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ClerkProvider>
-      <ClerkTokenSync />
-      {children}
+      <PostHogProvider>
+        <ClerkTokenSync />
+        {children}
+      </PostHogProvider>
     </ClerkProvider>
   );
 }

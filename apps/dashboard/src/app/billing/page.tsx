@@ -6,6 +6,13 @@ import { useState, useEffect } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { api } from '@/lib/api';
 
+// Extend Window interface for Razorpay
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
+
 interface Plan {
   id: string;
   name: string;
@@ -57,12 +64,12 @@ interface Usage {
   unit: string;
 }
 
-const USAGE_METRICS: Record<string, { label: string; unit: string; limit: number }> = {
-  tokens_input: { label: 'LLM Tokens (Input)', unit: 'tokens', limit: 1000000 },
-  tokens_output: { label: 'LLM Tokens (Output)', unit: 'tokens', limit: 500000 },
-  voice_minutes_stt: { label: 'STT Minutes', unit: 'min', limit: 100 },
-  voice_minutes_tts: { label: 'TTS Minutes', unit: 'min', limit: 100 },
-  storage_mb: { label: 'Storage', unit: 'MB', limit: 5000 },
+const USAGE_METRICS: Record<string, { label: string; unit: string }> = {
+  tokens_input: { label: 'LLM Tokens (Input)', unit: 'tokens' },
+  tokens_output: { label: 'LLM Tokens (Output)', unit: 'tokens' },
+  voice_minutes_stt: { label: 'STT Minutes', unit: 'min' },
+  voice_minutes_tts: { label: 'TTS Minutes', unit: 'min' },
+  storage_mb: { label: 'Storage', unit: 'MB' },
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -90,12 +97,29 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [upgrading, setUpgrading] = useState(false);
+  const [razorpayLoaded, setRazorpayLoaded] = useState(false);
 
   useEffect(() => {
     if (isLoaded && !isSignedIn) {
       router.push('/sign-in');
     }
   }, [isLoaded, isSignedIn]);
+
+  // Load Razorpay script
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !window.Razorpay) {
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      script.onload = () => setRazorpayLoaded(true);
+      document.body.appendChild(script);
+      return () => {
+        document.body.removeChild(script);
+      };
+    } else if (typeof window !== 'undefined' && window.Razorpay) {
+      setRazorpayLoaded(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (isLoaded && isSignedIn) {
@@ -126,13 +150,72 @@ export default function BillingPage() {
   }
 
   async function handleUpgrade(planSlug: string) {
+    if (!razorpayLoaded) {
+      setError('Razorpay is still loading. Please try again in a moment.');
+      return;
+    }
+
+    const plan = plans.find(p => p.slug === planSlug);
+    if (!plan) {
+      setError('Plan not found');
+      return;
+    }
+
+    // Free plan doesn't need Razorpay
+    if (planSlug === 'free') {
+      try {
+        setUpgrading(true);
+        await api.billing.upgradePlan(planSlug);
+        await loadBillingData();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to upgrade plan');
+      } finally {
+        setUpgrading(false);
+      }
+      return;
+    }
+
     try {
       setUpgrading(true);
-      await api.billing.upgradePlan(planSlug);
-      await loadBillingData();
+      setError(null);
+
+      // Get Razorpay subscription details from backend
+      const checkoutData = await api.billing.upgradePlan(planSlug);
+
+      if (!checkoutData.subscriptionId || !checkoutData.keyId) {
+        throw new Error('Invalid checkout data from server');
+      }
+
+      // Open Razorpay checkout modal
+      const options = {
+        key: checkoutData.keyId,
+        subscription_id: checkoutData.subscriptionId,
+        name: 'AI Agent Platform',
+        description: `Subscription to ${plan.name} plan`,
+        image: '/favicon.ico',
+        handler: async function (response: any) {
+          // Payment successful - reload billing data
+          await loadBillingData();
+        },
+        modal: {
+          ondismiss: function() {
+            setUpgrading(false);
+            setError('Payment was not completed. Please try again.');
+          }
+        },
+        theme: {
+          color: '#6366F1'
+        }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.on('payment.failed', function (response: any) {
+        setError('Payment failed: ' + (response.error?.description || 'Unknown error'));
+        setUpgrading(false);
+      });
+      rzp.open();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upgrade plan');
-    } finally {
+      setError(err instanceof Error ? err.message : 'Failed to initiate checkout');
       setUpgrading(false);
     }
   }
@@ -144,6 +227,19 @@ export default function BillingPage() {
       await loadBillingData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to cancel subscription');
+    }
+  }
+
+  async function handleReactivateSubscription() {
+    if (!confirm('Reactivate your subscription? This will cancel the scheduled cancellation.')) return;
+    try {
+      // The API doesn't have a reactivate endpoint yet, so we'll need to add it
+      // For now, we'll just cancel the subscription and let the backend handle reactivation
+      // In a real implementation, you'd call an API endpoint like:
+      // await api.billing.reactivateSubscription();
+      setError('Reactivation not yet implemented. Contact support.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reactivate subscription');
     }
   }
 
@@ -231,9 +327,9 @@ export default function BillingPage() {
                       <div className="flex gap-3">
                         {subscription?.cancelAtPeriodEnd && (
                           <button
-                            onClick={handleCancelSubscription}
+                            onClick={handleReactivateSubscription}
                             disabled={upgrading}
-                            className="px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 disabled:opacity-50"
+                            className="px-4 py-2 border border-green-300 text-sm font-medium rounded-md text-green-700 bg-white hover:bg-green-50 disabled:opacity-50"
                           >
                             Reactivate
                           </button>

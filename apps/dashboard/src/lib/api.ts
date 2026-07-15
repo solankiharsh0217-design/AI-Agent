@@ -1,7 +1,23 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
 
 let clerkToken: string | null = null;
-export function setClerkToken(token: string | null) { clerkToken = token; }
+let tokenResolve: ((token: string | null) => void) | null = null;
+let tokenReady: Promise<string | null> = new Promise(resolve => { tokenResolve = resolve; });
+let tokenInitialized = false;
+
+export function setClerkToken(token: string | null) {
+  clerkToken = token;
+  if (!tokenInitialized) {
+    tokenInitialized = true;
+    tokenResolve?.(token);
+  }
+}
+
+async function waitForToken(): Promise<string | null> {
+  if (tokenInitialized) return clerkToken;
+  await tokenReady;
+  return clerkToken;
+}
 
 interface RequestOptions {
   method?: string;
@@ -12,11 +28,12 @@ interface RequestOptions {
 async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, headers = {} } = options;
 
+  const token = await waitForToken();
   const response = await fetch(`${API_BASE_URL}/api/v1${endpoint}`, {
     method,
     headers: {
       'Content-Type': 'application/json',
-      ...(clerkToken ? { Authorization: `Bearer ${clerkToken}` } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers,
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -65,13 +82,15 @@ export const api = {
       return response.json();
     },
     listDocuments: (kbId: string) => request<any[]>(`/knowledge/${kbId}/documents`),
+    deleteDocument: (kbId: string, documentId: string) => request<void>(`/knowledge/${kbId}/documents/${documentId}`, { method: 'DELETE' }),
   },
   conversations: {
     list: (params?: { page?: number; limit?: number }) => {
       const query = new URLSearchParams();
       if (params?.page) query.set('page', params.page.toString());
       if (params?.limit) query.set('limit', params.limit.toString());
-      return request<any[]>(`/conversations?${query.toString()}`);
+      // Return full response with data and meta for pagination
+      return request<any>(`/conversations?${query.toString()}`);
     },
     get: (id: string) => request<any>(`/conversations/${id}`),
     delete: (id: string) => request<void>(`/conversations/${id}`, { method: 'DELETE' }),

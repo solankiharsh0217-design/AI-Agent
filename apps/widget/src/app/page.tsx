@@ -7,6 +7,7 @@ import ChatWidget from '@/components/ChatWidget';
 function WidgetContent() {
   const searchParams = useSearchParams();
   const widgetId = searchParams.get('widgetId') || '';
+  const apiUrl = searchParams.get('apiUrl') || '';
 
   if (!widgetId) {
     return (
@@ -16,7 +17,15 @@ function WidgetContent() {
     );
   }
 
-  return <ChatWidget widgetId={widgetId} />;
+  if (!apiUrl) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-50">
+        <p className="text-gray-500">Missing apiUrl parameter</p>
+      </div>
+    );
+  }
+
+  return <ChatWidget widgetId={widgetId} apiUrl={apiUrl} />;
 }
 
 export default function HomePage() {

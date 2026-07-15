@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
+import { CardSkeleton } from '@/components/LoadingSkeleton';
 
 interface Agent {
   id: string;
@@ -51,7 +52,17 @@ export function AgentList() {
     }
   }
 
-  if (loading) return <div className="text-center py-8">Loading...</div>;
+  async function handleArchive(id: string) {
+    if (!confirm('Archive this agent?')) return;
+    try {
+      const updated = await api.agents.archive(id);
+      setAgents(agents.map(a => a.id === id ? updated : a));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to archive agent');
+    }
+  }
+
+  if (loading) return <CardSkeleton />;
   if (error) return <div className="text-center py-8 text-red-500">{error}</div>;
 
   return (
@@ -83,16 +94,27 @@ export function AgentList() {
                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                       agent.status === 'published' ? 'bg-green-100 text-green-800' :
                       agent.status === 'draft' ? 'bg-yellow-100 text-yellow-800' :
+                      agent.status === 'archived' ? 'bg-gray-100 text-gray-800' :
                       'bg-gray-100 text-gray-800'
                     }`}>
                       {agent.status}
                     </span>
-                    <button
-                      onClick={() => handlePublish(agent.id)}
-                      className="text-indigo-600 hover:text-indigo-900 text-sm font-medium"
-                    >
-                      Publish
-                    </button>
+                    {agent.status !== 'archived' && (
+                      <button
+                        onClick={() => handlePublish(agent.id)}
+                        className="text-indigo-600 hover:text-indigo-900 text-sm font-medium"
+                      >
+                        Publish
+                      </button>
+                    )}
+                    {agent.status === 'published' && (
+                      <button
+                        onClick={() => handleArchive(agent.id)}
+                        className="text-blue-600 hover:text-blue-900 text-sm font-medium"
+                      >
+                        Archive
+                      </button>
+                    )}
                     <a
                       href={`/agents/${agent.id}`}
                       className="text-gray-600 hover:text-gray-900 text-sm font-medium"

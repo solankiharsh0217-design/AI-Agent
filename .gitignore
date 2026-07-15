@@ -56,3 +56,4 @@ packages/*/src/**/*.d.ts.map
 
 # Wrangler
 .wrangler/
+.vercel

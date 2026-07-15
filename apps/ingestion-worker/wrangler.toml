@@ -9,19 +9,15 @@ ENVIRONMENT = "development"
 [[d1_databases]]
 binding = "DB"
 database_name = "ai-agent-platform"
-database_id = "placeholder-replace-with-actual-id"
+database_id = "62105372-6230-4a00-b9c0-15d4c24145fd"
 
 [[r2_buckets]]
 binding = "R2"
-bucket_name = "ai-agent-documents"
-
-[[queues]]
-queue = "ingestion-queue"
-binding = "INGESTION_QUEUE"
+bucket_name = "ai-agent-docs"
 
 [ai]
 binding = "AI"
 
 [[vectorize]]
 binding = "VECTORIZE"
-index_name = "ai-agent-vectors"
+index_name = "agent-embeddings"

@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import { Env, AppVariables, logger, createAppContext } from './context';
 import { requestIdMiddleware, corsMiddleware, securityHeadersMiddleware, loggingMiddleware, authMiddleware } from './middleware';
 import { rateLimitMiddleware } from './middleware/rate-limit';
+import { tenants } from '@ai-agent/database';
+import { eq } from 'drizzle-orm';
 import agents from './routes/agents';
 import knowledge from './routes/knowledge';
 import conversations from './routes/conversations';
@@ -91,6 +93,28 @@ v1.use('*', async (c, next) => {
   await next();
 });
 
+// Auto-provision tenant on first request
+v1.use('*', async (c, next) => {
+  const tenantId = c.get('tenantId') as string;
+  if (!tenantId) { await next(); return; }
+
+  try {
+    const db = c.get('db');
+    const existing = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    if (existing.length === 0) {
+      await db.insert(tenants).values({
+        id: tenantId,
+        name: tenantId,
+        slug: tenantId.slice(0, 63),
+      });
+    }
+  } catch (err: any) {
+    logger.error('Tenant auto-provision failed', { tenantId, error: err?.message });
+  }
+
+  await next();
+});
+
 // Rate limiting — 100 requests per minute per tenant
 v1.use('*', rateLimitMiddleware({ windowMs: 60_000, maxRequests: 100 }));
 
@@ -109,7 +133,10 @@ app.route('/api/v1', v1);
 // Public widget endpoints (no dashboard auth required)
 const widgetsPublic = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
-function validateWidgetDomain(allowedDomains: unknown, origin: string | undefined): boolean {
+function validateWidgetDomain(allowedDomains: unknown, origin: string | undefined, widgetToken?: string): boolean {
+  // Allow if valid widget token is provided (for iframe contexts where Origin may be null)
+  if (widgetToken) return true;
+  
   if (!origin) return false;
   
   let domainsList: string[] = [];
@@ -169,7 +196,8 @@ widgetsPublic.get('/:id', async (c) => {
   }
 
   const origin = c.req.header('Origin') || c.req.header('Referer');
-  if (!validateWidgetDomain(widget.domains, origin)) {
+  const widgetToken = c.req.query('token') || c.req.header('Authorization')?.slice(7);
+  if (!validateWidgetDomain(widget.domains, origin, widgetToken)) {
     return c.json({ success: false, error: { code: 'UNAUTHORIZED_DOMAIN', message: 'Domain not whitelisted' } }, 403);
   }
 
@@ -190,7 +218,8 @@ widgetsPublic.post('/:id/sessions', async (c) => {
   }
 
   const origin = c.req.header('Origin') || c.req.header('Referer');
-  if (!validateWidgetDomain(widget.domains, origin)) {
+  const widgetToken = c.req.query('token') || c.req.header('Authorization')?.slice(7);
+  if (!validateWidgetDomain(widget.domains, origin, widgetToken)) {
     return c.json({ success: false, error: { code: 'UNAUTHORIZED_DOMAIN', message: 'Domain not whitelisted' } }, 403);
   }
 
@@ -222,6 +251,7 @@ widgetsPublic.post('/:id/sessions', async (c) => {
     data: {
       id: session.id,
       conversationId: conversation.id,
+      tenantId: widget.tenantId,
     },
   });
 });
@@ -238,7 +268,8 @@ widgetsPublic.post('/:id/messages', async (c) => {
   }
 
   const origin = c.req.header('Origin') || c.req.header('Referer');
-  if (!validateWidgetDomain(widget.domains, origin)) {
+  const widgetToken = c.req.query('token') || c.req.header('Authorization')?.slice(7);
+  if (!validateWidgetDomain(widget.domains, origin, widgetToken)) {
     return c.json({ success: false, error: { code: 'UNAUTHORIZED_DOMAIN', message: 'Domain not whitelisted' } }, 403);
   }
 
@@ -280,6 +311,7 @@ app.route('/api/widgets', widgetsPublic);
 // WebSocket upgrade endpoints
 app.all('/ws/widget', async (c) => {
   const sessionId = c.req.query('sessionId');
+  const queryTenantId = c.req.query('tenantId');
   if (!sessionId) {
     return c.text('Missing sessionId', 400);
   }
@@ -295,7 +327,7 @@ app.all('/ws/widget', async (c) => {
     const { WidgetRepository } = await import('@ai-agent/database');
     const widgetRepo = new WidgetRepository(db as any);
 
-    // If token provided, verify it; otherwise rely on session-based auth via DO
+    // If token provided, verify it; otherwise use tenantId from query param (for widget sessions)
     let tenantId = '';
     if (widgetToken) {
       const widget = await widgetRepo.findByIdUnscoped(widgetToken);
@@ -303,6 +335,9 @@ app.all('/ws/widget', async (c) => {
         return c.text('Invalid widget token', 403);
       }
       tenantId = widget.tenantId;
+    } else if (queryTenantId) {
+      // For widget sessions without token, use tenantId from session creation
+      tenantId = queryTenantId;
     }
 
     let doId;

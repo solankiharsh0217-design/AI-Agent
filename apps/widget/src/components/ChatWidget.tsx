@@ -6,23 +6,26 @@ import MessageBubble from './MessageBubble';
 
 interface ChatWidgetProps {
   widgetId: string;
+  apiUrl: string;
 }
 
-export default function ChatWidget({ widgetId }: ChatWidgetProps) {
+export default function ChatWidget({ widgetId, apiUrl }: ChatWidgetProps) {
   const {
     messages,
     input,
     setInput,
     sendMessage,
+    retryMessage,
     isTyping,
     connectionState,
     suggestedPrompts,
     greeting,
     config,
-  } = useChat({ widgetId });
+  } = useChat({ widgetId, apiUrl });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isSendingRef = useRef(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -37,9 +40,12 @@ export default function ChatWidget({ widgetId }: ChatWidgetProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || connectionState === 'disconnected') return;
+    if (!input.trim() || connectionState === 'disconnected' || connectionState === 'error' || isSendingRef.current) return;
+    isSendingRef.current = true;
     sendMessage(input.trim());
     setInput('');
+    // Reset sending guard after a short delay
+    setTimeout(() => { isSendingRef.current = false; }, 500);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -105,6 +111,7 @@ export default function ChatWidget({ widgetId }: ChatWidgetProps) {
             message={message}
             primaryColor={config?.theme?.primaryColor || '#3B82F6'}
             textColor={config?.theme?.textColor || '#1E293B'}
+            onRetry={retryMessage}
           />
         ))}
 
@@ -149,6 +156,7 @@ export default function ChatWidget({ widgetId }: ChatWidgetProps) {
           onKeyDown={handleKeyDown}
           placeholder={config?.chat?.placeholder || 'Type a message...'}
           rows={1}
+          maxLength={10000}
           className="flex-1 resize-none rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
           style={{
             borderColor: config?.theme?.secondaryColor || '#e5e7eb',
@@ -159,7 +167,7 @@ export default function ChatWidget({ widgetId }: ChatWidgetProps) {
         />
         <button
           type="submit"
-          disabled={!input.trim() || connectionState === 'disconnected'}
+          disabled={!input.trim() || connectionState === 'disconnected' || connectionState === 'error'}
           className="p-2 rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
           style={{ backgroundColor: config?.theme?.primaryColor || '#3B82F6' }}
         >

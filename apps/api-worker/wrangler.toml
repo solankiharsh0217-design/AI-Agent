@@ -4,31 +4,28 @@ compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-ENVIRONMENT = "development"
+ENVIRONMENT = "production"
+ALLOWED_ORIGINS = "https://dashboard-deploy-psi-nine.vercel.app,https://widget-deploy-alpha.vercel.app"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "ai-agent-platform"
-database_id = "placeholder-replace-with-actual-id"
-
-[[r2_buckets]]
-binding = "R2"
-bucket_name = "ai-agent-documents"
+database_id = "62105372-6230-4a00-b9c0-15d4c24145fd"
 
 [[kv_namespaces]]
 binding = "KV"
-id = "placeholder-replace-with-actual-id"
+id = "b196ec6abd724e71917750b852cd25bd"
 
-[[queues]]
-binding = "INGESTION_QUEUE"
-queue = "ingestion-queue"
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "ai-agent-docs"
 
 [ai]
 binding = "AI"
 
 [[vectorize]]
 binding = "VECTORIZE"
-index_name = "ai-agent-vectors"
+index_name = "agent-embeddings"
 
 [durable_objects]
 bindings = [
@@ -37,4 +34,4 @@ bindings = [
 
 [[migrations]]
 tag = "v1"
-new_classes = ["SessionDurableObject"]
+new_sqlite_classes = ["SessionDurableObject"]

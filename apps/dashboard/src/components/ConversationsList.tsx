@@ -11,25 +11,37 @@ interface Conversation {
   createdAt: string;
 }
 
+interface PaginatedResponse<T> {
+  data: T[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
 export function ConversationsList() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     async function loadConversations() {
       try {
-        const data = await api.conversations.list({ page, limit: 20 });
+        const response = await api.conversations.list({ page, limit: 20 });
         if (!cancelled) {
           if (page === 1) {
-            setConversations(data);
+            setConversations(response.data);
           } else {
-            setConversations((prev) => [...prev, ...data]);
+            setConversations((prev) => [...prev, ...response.data]);
           }
-          setHasMore(data.length === 20);
+          setTotalPages(response.meta.totalPages);
+          setTotal(response.meta.total);
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load conversations');
@@ -57,7 +69,7 @@ export function ConversationsList() {
   return (
     <div className="bg-white shadow rounded-lg">
       <div className="px-4 py-5 sm:px-6">
-        <h3 className="text-lg leading-6 font-medium text-gray-900">Conversations</h3>
+        <h3 className="text-lg leading-6 font-medium text-gray-900">Conversations ({total})</h3>
       </div>
       <div className="border-t border-gray-200">
         {conversations.length === 0 ? (
@@ -100,14 +112,25 @@ export function ConversationsList() {
             ))}
           </ul>
         )}
-        {hasMore && conversations.length > 0 && (
-          <div className="px-4 py-3 border-t border-gray-200">
-            <button
-              onClick={() => setPage(page + 1)}
-              className="w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-indigo-600 bg-white hover:bg-gray-50"
-            >
-              Load More
-            </button>
+        {(page < totalPages || page > 1) && conversations.length > 0 && (
+          <div className="px-4 py-3 border-t border-gray-200 flex justify-between items-center">
+            <span className="text-sm text-gray-500">Page {page} of {totalPages}</span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPage(page - 1)}
+                disabled={page <= 1}
+                className="px-3 py-1 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => setPage(page + 1)}
+                disabled={page >= totalPages}
+                className="px-3 py-1 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
           </div>
         )}
       </div>

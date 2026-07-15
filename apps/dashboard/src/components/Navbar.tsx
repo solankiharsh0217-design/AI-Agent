@@ -32,6 +32,9 @@ export function Navbar() {
               <Link href="/billing" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-500 hover:text-gray-900">
                 Billing
               </Link>
+              <Link href="/settings" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-500 hover:text-gray-900">
+                Settings
+              </Link>
             </div>
           </div>
           <div className="flex items-center">

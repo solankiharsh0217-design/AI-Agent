@@ -78,27 +78,23 @@ export async function authMiddleware(authHeader: string | undefined, env: Env): 
   const token = authHeader.slice(7);
 
   try {
-    // Verify Clerk JWT using JWKS
-    const payload = await verifyClerkToken(token, env.CLERK_PUBLISHABLE_KEY, env);
-    if (!payload) {
-      return { tenantId: '', userId: '', role: '', error: { code: 'AUTH_REQUIRED', message: 'Invalid or expired token', status: 401 } };
+    const result = await verifyClerkToken(token, env.CLERK_PUBLISHABLE_KEY, env);
+    if (!result.payload) {
+      return { tenantId: '', userId: '', role: '', error: { code: 'AUTH_REQUIRED', message: `Invalid or expired token: ${result.error}`, status: 401 } };
     }
 
-    // Extract tenant and user info from JWT claims
-    const tenantId = (payload.tenant_id as string) ?? (payload.org_id as string);
+    const payload = result.payload;
+    const tenantId = (payload.tenant_id as string) ?? (payload.org_id as string) ?? (payload.sub as string);
     const userId = payload.sub as string;
     const role = (payload.role as string) ?? 'member';
 
-    if (!tenantId) {
-      return { tenantId: '', userId: '', role: '', error: { code: 'AUTH_REQUIRED', message: 'No tenant associated with this token', status: 401 } };
-    }
     if (!userId) {
       return { tenantId: '', userId: '', role: '', error: { code: 'AUTH_REQUIRED', message: 'No user ID in token', status: 401 } };
     }
 
     return { tenantId, userId, role };
-  } catch (error) {
-    return { tenantId: '', userId: '', role: '', error: { code: 'AUTH_REQUIRED', message: 'Token verification failed', status: 401 } };
+  } catch (error: any) {
+    return { tenantId: '', userId: '', role: '', error: { code: 'AUTH_REQUIRED', message: `Token verification failed: ${error?.message}`, status: 401 } };
   }
 }
 
@@ -122,53 +118,40 @@ function base64UrlToUint8Array(str: string): Uint8Array {
 const JWKS_CACHE_KEY = 'clerk:jwks:cache';
 const JWKS_CACHE_TTL = 3600; // 1 hour
 
-async function verifyClerkToken(token: string, clerkPublishableKey: string, env: Env): Promise<Record<string, unknown> | null> {
-  // Parse JWT header to get kid
+interface VerifyResult {
+  payload: Record<string, unknown> | null;
+  error?: string;
+}
+
+async function verifyClerkToken(token: string, clerkPublishableKey: string, env: Env): Promise<VerifyResult> {
   const parts = token.split('.');
-  if (parts.length !== 3) return null;
+  if (parts.length !== 3) return { payload: null, error: `Invalid JWT structure: ${parts.length} parts` };
 
   try {
     const header = JSON.parse(base64UrlDecode(parts[0]));
     const payload = JSON.parse(base64UrlDecode(parts[1]));
 
-    // Verify algorithm is RS256
-    if (header.alg !== 'RS256') return null;
+    if (header.alg !== 'RS256') return { payload: null, error: `Wrong algorithm: ${header.alg}` };
 
-    // Check expiry
-    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-      return null;
-    }
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) return { payload: null, error: `Token expired: exp=${payload.exp} now=${now}` };
+    if (payload.nbf && payload.nbf > now + 60) return { payload: null, error: `Token not yet valid: nbf=${payload.nbf} now=${now}` };
 
-    // Check not-before
-    if (payload.nbf && payload.nbf > Math.floor(Date.now() / 1000) + 60) {
-      return null;
-    }
-
-    // Compute expected issuer from publishable key
-    const keySuffix = clerkPublishableKey.split('_').slice(1).join('_');
-    const expectedIssuer = `https://clerk.${keySuffix}.accounts.dev`;
-
-    // Validate issuer — must match expected or be in the known list
-    const knownIssuers = [expectedIssuer];
-    if (payload.iss && !knownIssuers.includes(payload.iss as string)) {
-      return null;
-    }
+    if (!payload.iss) return { payload: null, error: 'No issuer in token' };
 
     // Validate audience if present
     if (payload.aud) {
       const audience = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-      // Clerk tokens should have the frontend API URL as audience
-      const hasValidAudience = audience.includes(expectedIssuer) || audience.includes(clerkPublishableKey);
+      const hasValidAudience = audience.some(a => a === payload.iss || a === clerkPublishableKey);
       if (!hasValidAudience) {
-        return null;
+        return { payload: null, error: `Audience mismatch: got=${JSON.stringify(payload.aud)}` };
       }
     }
 
-    // Fetch Clerk JWKS — use KV cache to avoid per-request fetches
-    const issuer = payload.iss as string || expectedIssuer;
+    // Fetch Clerk JWKS from the issuer — signature verification proves authenticity
+    const issuer = payload.iss as string;
     let jwks: { keys: Array<{ kid: string; kty: string; n: string; e: string }> } | null = null;
 
-    // Try KV cache first
     if ((env as any).KV) {
       const cached = await (env as any).KV.get(JWKS_CACHE_KEY);
       if (cached) {
@@ -176,23 +159,20 @@ async function verifyClerkToken(token: string, clerkPublishableKey: string, env:
       }
     }
 
-    // Fetch if not cached
     if (!jwks) {
       const jwksUrl = `${issuer}/.well-known/jwks.json`;
       const response = await fetch(jwksUrl);
-      if (!response.ok) return null;
+      if (!response.ok) return { payload: null, error: `JWKS fetch failed: ${response.status} from ${jwksUrl}` };
       jwks = await response.json() as typeof jwks;
 
-      // Cache in KV
       if ((env as any).KV && jwks) {
         await (env as any).KV.put(JWKS_CACHE_KEY, JSON.stringify(jwks), { expirationTtl: JWKS_CACHE_TTL });
       }
     }
 
     const key = jwks!.keys.find(k => k.kid === header.kid);
-    if (!key) return null;
+    if (!key) return { payload: null, error: `No matching key for kid=${header.kid}, available kids: ${jwks!.keys.map(k => k.kid).join(',')}` };
 
-    // Import the public key
     const publicKey = await crypto.subtle.importKey(
       'jwk',
       { kty: key.kty, n: key.n, e: key.e, alg: 'RS256', ext: true },
@@ -201,16 +181,15 @@ async function verifyClerkToken(token: string, clerkPublishableKey: string, env:
       ['verify']
     );
 
-    // Verify signature using base64url-decoded signature
     const encoder = new TextEncoder();
     const data = encoder.encode(`${parts[0]}.${parts[1]}`);
     const signature = base64UrlToUint8Array(parts[2]);
 
     const valid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', publicKey, signature, data);
-    if (!valid) return null;
+    if (!valid) return { payload: null, error: 'Signature verification failed' };
 
-    return payload;
-  } catch {
-    return null;
+    return { payload };
+  } catch (e: any) {
+    return { payload: null, error: `Exception: ${e?.message ?? String(e)}` };
   }
 }

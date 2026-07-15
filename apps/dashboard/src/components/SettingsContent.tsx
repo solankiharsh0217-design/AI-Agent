@@ -11,42 +11,21 @@ interface UserProfile {
   tenantId: string;
 }
 
-interface Subscription {
-  id: string;
-  planId: string;
-  status: string;
-  currentPeriodEnd: string;
-}
-
-interface Invoice {
-  id: string;
-  number: string;
-  status: string;
-  amountDue: number;
-  currency: string;
-  createdAt: string;
-}
-
 export function SettingsContent() {
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [subscription, setSubscription] = useState<Subscription | null>(null);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     async function loadSettings() {
       try {
-        const [userData, subData, invoiceData] = await Promise.all([
-          api.user.me(),
-          api.billing.getSubscription(),
-          api.billing.getInvoices(),
-        ]);
+        const userData = await api.user.me();
         if (!cancelled) {
           setUser(userData);
-          setSubscription(subData);
-          setInvoices(invoiceData);
+          setName(userData.name || '');
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load settings');
@@ -58,6 +37,17 @@ export function SettingsContent() {
     return () => { cancelled = true; };
   }, []);
 
+  async function handleSaveName() {
+    try {
+      // The API doesn't have a user update endpoint yet, so we'll just update local state
+      // In a real app, you'd call an update endpoint here
+      setUser(prev => prev ? { ...prev, name } : null);
+      setEditing(false);
+    } catch (err) {
+      console.error('Failed to update name:', err);
+    }
+  }
+
   if (loading) return <div className="text-center py-8">Loading...</div>;
   if (error) return <div className="text-center py-8 text-red-500">{error}</div>;
 
@@ -68,106 +58,81 @@ export function SettingsContent() {
           <h3 className="text-lg leading-6 font-medium text-gray-900">Account Information</h3>
         </div>
         <div className="border-t border-gray-200 px-4 py-5 sm:px-6">
-          <dl className="grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-2">
-            <div className="sm:col-span-1">
-              <dt className="text-sm font-medium text-gray-500">Email</dt>
-              <dd className="mt-1 text-sm text-gray-900">{user?.email ?? 'N/A'}</dd>
+          {editing ? (
+            <div className="space-y-4">
+              <div className="sm:col-span-1">
+                <label className="block text-sm font-medium text-gray-700">Email</label>
+                <p className="mt-1 text-sm text-gray-900">{user?.email ?? 'N/A'}</p>
+              </div>
+              <div className="sm:col-span-1">
+                <label className="block text-sm font-medium text-gray-700">Name</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSaveName}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => { setName(user?.name || ''); setEditing(false); }}
+                  className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
-            <div className="sm:col-span-1">
-              <dt className="text-sm font-medium text-gray-500">Name</dt>
-              <dd className="mt-1 text-sm text-gray-900">{user?.name ?? 'N/A'}</dd>
-            </div>
-            <div className="sm:col-span-1">
-              <dt className="text-sm font-medium text-gray-500">Role</dt>
-              <dd className="mt-1 text-sm text-gray-900">{user?.role ?? 'N/A'}</dd>
-            </div>
-            <div className="sm:col-span-1">
-              <dt className="text-sm font-medium text-gray-500">Tenant ID</dt>
-              <dd className="mt-1 text-sm text-gray-900">{user?.tenantId ?? 'N/A'}</dd>
-            </div>
-          </dl>
-        </div>
-      </div>
-
-      <div className="bg-white shadow rounded-lg">
-        <div className="px-4 py-5 sm:px-6">
-          <h3 className="text-lg leading-6 font-medium text-gray-900">Subscription</h3>
-        </div>
-        <div className="border-t border-gray-200 px-4 py-5 sm:px-6">
-          {subscription ? (
+          ) : (
             <dl className="grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-2">
               <div className="sm:col-span-1">
-                <dt className="text-sm font-medium text-gray-500">Plan</dt>
-                <dd className="mt-1 text-sm text-gray-900">{subscription.planId}</dd>
+                <dt className="text-sm font-medium text-gray-500">Email</dt>
+                <dd className="mt-1 text-sm text-gray-900">{user?.email ?? 'N/A'}</dd>
               </div>
               <div className="sm:col-span-1">
-                <dt className="text-sm font-medium text-gray-500">Status</dt>
-                <dd className="mt-1 text-sm text-gray-900">{subscription.status}</dd>
+                <dt className="text-sm font-medium text-gray-500">Name</dt>
+                <dd className="mt-1 text-sm text-gray-900">{user?.name ?? 'N/A'}</dd>
               </div>
               <div className="sm:col-span-1">
-                <dt className="text-sm font-medium text-gray-500">Current Period End</dt>
-                <dd className="mt-1 text-sm text-gray-900">
-                  {new Date(subscription.currentPeriodEnd).toLocaleDateString()}
-                </dd>
+                <dt className="text-sm font-medium text-gray-500">Role</dt>
+                <dd className="mt-1 text-sm text-gray-900">{user?.role ?? 'N/A'}</dd>
+              </div>
+              <div className="sm:col-span-1">
+                <dt className="text-sm font-medium text-gray-500">Tenant ID</dt>
+                <dd className="mt-1 text-sm text-gray-900">{user?.tenantId ?? 'N/A'}</dd>
               </div>
             </dl>
-          ) : (
-            <p className="text-sm text-gray-500">No active subscription.</p>
           )}
-          <div className="mt-4">
-            <a
-              href="/billing"
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
-            >
-              Manage Billing
-            </a>
-          </div>
+          {!editing && (
+            <div className="mt-4">
+              <button
+                onClick={() => setEditing(true)}
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-indigo-600 bg-indigo-50 hover:bg-indigo-100"
+              >
+                Edit Profile
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="bg-white shadow rounded-lg">
         <div className="px-4 py-5 sm:px-6">
-          <h3 className="text-lg leading-6 font-medium text-gray-900">Recent Invoices</h3>
+          <h3 className="text-lg leading-6 font-medium text-gray-900">Subscription & Billing</h3>
+          <p className="mt-1 text-sm text-gray-500">Manage your subscription and view invoices on the Billing page.</p>
         </div>
-        <div className="border-t border-gray-200">
-          {invoices.length === 0 ? (
-            <div className="px-4 py-8 text-center text-gray-500">No invoices yet.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Number</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {invoices.map((invoice) => (
-                    <tr key={invoice.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{invoice.number}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          invoice.status === 'paid' ? 'bg-green-100 text-green-800' :
-                          invoice.status === 'open' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {invoice.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {invoice.amountDue.toLocaleString(undefined, { style: 'currency', currency: invoice.currency })}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {new Date(invoice.createdAt).toLocaleDateString()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+        <div className="border-t border-gray-200 px-4 py-5 sm:px-6">
+          <a
+            href="/billing"
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+          >
+            Go to Billing
+          </a>
         </div>
       </div>
     </div>
