@@ -1,0 +1,37 @@
+{
+  "name": "@ai-agent/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "import": "./dist/schema/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "drizzle:generate": "drizzle-kit generate",
+    "drizzle:migrate": "drizzle-kit migrate",
+    "drizzle:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.36.0",
+    "@ai-agent/types": "workspace:*",
+    "@ai-agent/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.28.0",
+    "@cloudflare/workers-types": "^4.20241106.0",
+    "typescript": "^5.7.0"
+  }
+}

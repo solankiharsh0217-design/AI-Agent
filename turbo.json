@@ -1,0 +1,34 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "pipeline": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "build/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "outputs": []
+    },
+    "typecheck": {
+      "outputs": []
+    },
+    "test": {
+      "outputs": ["coverage/**"],
+      "dependsOn": []
+    },
+    "db:generate": {
+      "outputs": ["drizzle/**"]
+    },
+    "db:migrate": {
+      "dependsOn": ["db:generate"]
+    },
+    "db:push": {
+      "dependsOn": ["db:generate"]
+    }
+  },
+  "globalDependencies": [".env*"],
+  "globalEnv": ["NODE_ENV", "TURBO_TEAM", "TURBO_TOKEN"]
+}

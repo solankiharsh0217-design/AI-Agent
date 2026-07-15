@@ -1,0 +1,387 @@
+'use client';
+
+import { useAuth } from '@clerk/nextjs';
+import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { Navbar } from '@/components/Navbar';
+import { api } from '@/lib/api';
+
+interface Plan {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  pricing: {
+    basePrice: number;
+    currency: string;
+    interval: string;
+  };
+  limits: {
+    maxAgents: number;
+    maxKnowledgeBases: number;
+    maxMonthlyMessages: number;
+    maxMonthlyVoiceMinutes: number;
+    maxMonthlyPhoneMinutes: number;
+    maxStorageMb: number;
+  };
+}
+
+interface Subscription {
+  id: string;
+  planId: string;
+  status: string;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  cancelAtPeriodEnd: boolean;
+  plan?: Plan;
+}
+
+interface Invoice {
+  id: string;
+  number: string;
+  status: string;
+  amountDue: number;
+  amountPaid: number;
+  currency: string;
+  periodStart: string;
+  periodEnd: string;
+  dueDate: string | null;
+  paidAt: string | null;
+  hostedInvoiceUrl: string | null;
+}
+
+interface Usage {
+  metric: string;
+  quantity: number;
+  limit: number;
+  unit: string;
+}
+
+const USAGE_METRICS: Record<string, { label: string; unit: string; limit: number }> = {
+  tokens_input: { label: 'LLM Tokens (Input)', unit: 'tokens', limit: 1000000 },
+  tokens_output: { label: 'LLM Tokens (Output)', unit: 'tokens', limit: 500000 },
+  voice_minutes_stt: { label: 'STT Minutes', unit: 'min', limit: 100 },
+  voice_minutes_tts: { label: 'TTS Minutes', unit: 'min', limit: 100 },
+  storage_mb: { label: 'Storage', unit: 'MB', limit: 5000 },
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  paid: 'bg-green-100 text-green-800',
+  open: 'bg-yellow-100 text-yellow-800',
+  draft: 'bg-gray-100 text-gray-800',
+  void: 'bg-gray-100 text-gray-500',
+  uncollectible: 'bg-red-100 text-red-800',
+};
+
+const PLAN_COLORS: Record<string, string> = {
+  free: 'bg-gray-100 text-gray-800',
+  starter: 'bg-blue-100 text-blue-800',
+  pro: 'bg-purple-100 text-purple-800',
+  enterprise: 'bg-indigo-100 text-indigo-800',
+};
+
+export default function BillingPage() {
+  const { isLoaded, isSignedIn } = useAuth();
+  const router = useRouter();
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [usage, setUsage] = useState<Usage[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [upgrading, setUpgrading] = useState(false);
+
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) {
+      router.push('/sign-in');
+    }
+  }, [isLoaded, isSignedIn]);
+
+  useEffect(() => {
+    if (isLoaded && isSignedIn) {
+      loadBillingData();
+    }
+  }, [isLoaded, isSignedIn]);
+
+  async function loadBillingData() {
+    try {
+      setLoading(true);
+      setError(null);
+      const [subData, invoiceData, usageData, planData] = await Promise.allSettled([
+        api.billing.getSubscription(),
+        api.billing.getInvoices(),
+        api.billing.getUsage(),
+        api.billing.getPlans(),
+      ]);
+
+      if (subData.status === 'fulfilled') setSubscription(subData.value);
+      if (invoiceData.status === 'fulfilled') setInvoices(invoiceData.value);
+      if (usageData.status === 'fulfilled') setUsage(usageData.value);
+      if (planData.status === 'fulfilled') setPlans(planData.value);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load billing data');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleUpgrade(planSlug: string) {
+    try {
+      setUpgrading(true);
+      await api.billing.upgradePlan(planSlug);
+      await loadBillingData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to upgrade plan');
+    } finally {
+      setUpgrading(false);
+    }
+  }
+
+  async function handleCancelSubscription() {
+    if (!confirm('Are you sure you want to cancel your subscription?')) return;
+    try {
+      await api.billing.cancelSubscription();
+      await loadBillingData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to cancel subscription');
+    }
+  }
+
+  function getUsagePercentage(metric: Usage): number {
+    if (metric.limit === 0) return 0;
+    return Math.min((metric.quantity / metric.limit) * 100, 100);
+  }
+
+  function getUsageBarColor(percentage: number): string {
+    if (percentage >= 90) return 'bg-red-500';
+    if (percentage >= 70) return 'bg-yellow-500';
+    return 'bg-indigo-500';
+  }
+
+  function formatDate(dateStr: string): string {
+    return new Date(dateStr).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  }
+
+  function formatCurrency(amount: number, currency: string = 'USD'): string {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+    }).format(amount / 100);
+  }
+
+  const currentPlanName = subscription?.plan?.slug ?? 'free';
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Navbar />
+      <div className="py-10">
+        <header>
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h1 className="text-3xl font-bold text-gray-900">Billing</h1>
+          </div>
+        </header>
+        <main>
+          <div className="max-w-7xl mx-auto sm:px-6 lg:px-8">
+            <div className="px-4 py-8 sm:px-0">
+
+              {loading && (
+                <div className="text-center py-12">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                  <p className="mt-2 text-sm text-gray-500">Loading billing data...</p>
+                </div>
+              )}
+
+              {error && (
+                <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-6">
+                  <p className="text-sm text-red-700">{error}</p>
+                  <button
+                    onClick={() => { setError(null); loadBillingData(); }}
+                    className="mt-2 text-sm font-medium text-red-600 hover:text-red-500"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+
+              {!loading && !error && (
+                <>
+                  {/* Current Plan */}
+                  <div className="bg-white shadow rounded-lg p-6 mb-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h2 className="text-lg font-medium text-gray-900">Current Plan</h2>
+                        <div className="mt-2 flex items-center gap-3">
+                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${PLAN_COLORS[currentPlanName] ?? 'bg-gray-100 text-gray-800'}`}>
+                            {subscription?.plan?.name ?? 'Free'}
+                          </span>
+                          <span className={`text-xs font-medium ${subscription?.status === 'active' ? 'text-green-600' : 'text-yellow-600'}`}>
+                            {subscription?.status === 'active' ? 'Active' : subscription?.status ?? 'N/A'}
+                          </span>
+                        </div>
+                        {subscription?.currentPeriodEnd && (
+                          <p className="mt-1 text-sm text-gray-500">
+                            Renews on {formatDate(subscription.currentPeriodEnd)}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex gap-3">
+                        {subscription?.cancelAtPeriodEnd && (
+                          <button
+                            onClick={handleCancelSubscription}
+                            disabled={upgrading}
+                            className="px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 disabled:opacity-50"
+                          >
+                            Reactivate
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Usage Summary */}
+                  <div className="bg-white shadow rounded-lg p-6 mb-6">
+                    <h2 className="text-lg font-medium text-gray-900 mb-4">Usage This Period</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {usage.map((item) => {
+                        const meta = USAGE_METRICS[item.metric];
+                        if (!meta) return null;
+                        const pct = getUsagePercentage(item);
+                        return (
+                          <div key={item.metric} className="border border-gray-200 rounded-lg p-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-medium text-gray-700">{meta.label}</span>
+                              <span className="text-xs text-gray-500">{item.unit}</span>
+                            </div>
+                            <div className="flex items-baseline gap-1 mb-2">
+                              <span className="text-2xl font-semibold text-gray-900">
+                                {item.quantity.toLocaleString()}
+                              </span>
+                              <span className="text-sm text-gray-500">
+                                / {item.limit.toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div
+                                className={`h-2 rounded-full transition-all ${getUsageBarColor(pct)}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <p className="mt-1 text-xs text-gray-500">{pct.toFixed(1)}% used</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Plan Cards */}
+                  {plans.length > 0 && (
+                    <div className="bg-white shadow rounded-lg p-6 mb-6">
+                      <h2 className="text-lg font-medium text-gray-900 mb-4">Available Plans</h2>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {plans.map((plan) => {
+                          const isCurrent = plan.slug === currentPlanName;
+                          return (
+                            <div
+                              key={plan.id}
+                              className={`border rounded-lg p-4 ${isCurrent ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-gray-200'}`}
+                            >
+                              <h3 className="text-base font-semibold text-gray-900">{plan.name}</h3>
+                              <p className="mt-1 text-sm text-gray-500">{plan.description}</p>
+                              <p className="mt-3 text-2xl font-bold text-gray-900">
+                                {plan.pricing.basePrice === 0 ? 'Free' : `$${plan.pricing.basePrice}`}
+                                {plan.pricing.basePrice > 0 && (
+                                  <span className="text-sm font-normal text-gray-500">/{plan.pricing.interval}</span>
+                                )}
+                              </p>
+                              <ul className="mt-4 space-y-2 text-sm text-gray-600">
+                                <li>{plan.limits.maxAgents} agents</li>
+                                <li>{plan.limits.maxMonthlyMessages.toLocaleString()} messages/mo</li>
+                                <li>{plan.limits.maxMonthlyVoiceMinutes} voice min/mo</li>
+                                <li>{plan.limits.maxStorageMb} MB storage</li>
+                              </ul>
+                              <button
+                                onClick={() => handleUpgrade(plan.slug)}
+                                disabled={isCurrent || upgrading}
+                                className={`mt-4 w-full px-4 py-2 text-sm font-medium rounded-md disabled:opacity-50 ${
+                                  isCurrent
+                                    ? 'bg-indigo-100 text-indigo-700 cursor-default'
+                                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                                }`}
+                              >
+                                {isCurrent ? 'Current Plan' : 'Upgrade'}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Invoice History */}
+                  <div className="bg-white shadow rounded-lg overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-200">
+                      <h2 className="text-lg font-medium text-gray-900">Invoice History</h2>
+                    </div>
+                    {invoices.length === 0 ? (
+                      <div className="px-6 py-12 text-center text-sm text-gray-500">
+                        No invoices yet.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Period</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paid</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {invoices.map((invoice) => (
+                              <tr key={invoice.id}>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                  {invoice.hostedInvoiceUrl ? (
+                                    <a href={invoice.hostedInvoiceUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500">
+                                      {invoice.number}
+                                    </a>
+                                  ) : (
+                                    invoice.number
+                                  )}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                  {formatDate(invoice.periodStart)} – {formatDate(invoice.periodEnd)}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[invoice.status] ?? 'bg-gray-100 text-gray-800'}`}>
+                                    {invoice.status}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
+                                  {formatCurrency(invoice.amountDue, invoice.currency)}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                  {invoice.paidAt ? formatDate(invoice.paidAt) : '—'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}

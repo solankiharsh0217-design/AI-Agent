@@ -1,0 +1,12 @@
+export { TenantRepository } from './tenant.repository';
+export { UserRepository } from './user.repository';
+export { AgentRepository } from './agent.repository';
+export { KnowledgeBaseRepository } from './knowledge-base.repository';
+export { DocumentRepository } from './document.repository';
+export { ConversationRepository } from './conversation.repository';
+export { WidgetRepository } from './widget.repository';
+export { SessionRepository } from './session.repository';
+export { UsageRepository } from './usage.repository';
+export { PlanRepository, SubscriptionRepository, InvoiceRepository } from './billing.repository';
+export { APIKeyRepository, AuditLogRepository } from './auth.repository';
+export { PhoneNumberRepository, CallRepository } from './phone.repository';
