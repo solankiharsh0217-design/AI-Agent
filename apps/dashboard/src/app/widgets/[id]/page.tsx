@@ -6,6 +6,21 @@ import { api, setClerkToken } from '@/lib/api';
 const WIDGET_APP_URL = 'https://widget-deploy-alpha.vercel.app';
 const API_URL = 'https://api-worker.orbitcrew2026.workers.dev';
 
+const LANGUAGES = [
+  { code: 'en-IN', label: 'English (India)' },
+  { code: 'hi-IN', label: 'Hindi' },
+  { code: 'bn-IN', label: 'Bengali' },
+  { code: 'ta-IN', label: 'Tamil' },
+  { code: 'te-IN', label: 'Telugu' },
+  { code: 'mr-IN', label: 'Marathi' },
+  { code: 'gu-IN', label: 'Gujarati' },
+  { code: 'kn-IN', label: 'Kannada' },
+  { code: 'ml-IN', label: 'Malayalam' },
+  { code: 'pa-IN', label: 'Punjabi' },
+];
+
+const DEFAULT_VOICE = { enabled: false, language: 'en-IN', voiceId: '', showVisualizer: true };
+
 export default function WidgetDetailPage({ params }: { params: { id: string } }) {
   const { getToken } = useAuth();
   const [widget, setWidget] = useState<any>(null);
@@ -18,6 +33,7 @@ export default function WidgetDetailPage({ params }: { params: { id: string } })
       chat: { greeting: string; placeholder: string; suggestedPrompts: string[]; enterToSend: boolean };
       theme: { primaryColor: string; secondaryColor: string; textColor: string; surfaceColor: string };
       branding: { companyName: string; logo: string; tagline: string };
+      voice: { enabled: boolean; language: string; voiceId: string; showVisualizer: boolean };
     };
     status: string;
     domains: string[];
@@ -27,6 +43,7 @@ export default function WidgetDetailPage({ params }: { params: { id: string } })
       chat: { greeting: '', placeholder: '', suggestedPrompts: [], enterToSend: true },
       theme: { primaryColor: '#3B82F6', secondaryColor: '#e5e7eb', textColor: '#1E293B', surfaceColor: '#F8FAFC' },
       branding: { companyName: '', logo: '', tagline: '' },
+      voice: { enabled: false, language: 'en-IN', voiceId: '', showVisualizer: true },
     },
     status: 'active',
     domains: [],
@@ -43,7 +60,11 @@ export default function WidgetDetailPage({ params }: { params: { id: string } })
       setWidget(data);
       setFormData({
         name: data.name,
-        config: data.config || formData.config,
+        config: {
+          ...formData.config,
+          ...(data.config || {}),
+          voice: { ...DEFAULT_VOICE, ...(data.config?.voice || {}), voiceId: data.config?.voice?.voiceId ?? '' },
+        },
         status: data.status || 'active',
         domains: data.domains || [],
       });
@@ -100,7 +121,7 @@ export default function WidgetDetailPage({ params }: { params: { id: string } })
                 {saving ? 'Saving...' : 'Save'}
               </button>
               <button
-                onClick={() => { setEditing(false); setFormData({ name: widget.name, config: widget.config || formData.config, status: widget.status || 'active', domains: widget.domains || [] }); }}
+                onClick={() => { setEditing(false); setFormData({ name: widget.name, config: { ...formData.config, ...(widget.config || {}), voice: { ...DEFAULT_VOICE, ...(widget.config?.voice || {}), voiceId: widget.config?.voice?.voiceId ?? '' } }, status: widget.status || 'active', domains: widget.domains || [] }); }}
                 className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
               >
                 Cancel
@@ -223,6 +244,52 @@ export default function WidgetDetailPage({ params }: { params: { id: string } })
           </div>
 
           <div className="border-t pt-6">
+            <h2 className="text-lg font-semibold mb-4">Voice</h2>
+            <div className="flex items-center gap-2 mb-4">
+              <input
+                type="checkbox"
+                id="voice-enabled"
+                checked={formData.config.voice?.enabled || false}
+                onChange={e => setFormData(prev => ({ ...prev, config: { ...prev.config, voice: { ...prev.config.voice, enabled: e.target.checked } } }))}
+              />
+              <label htmlFor="voice-enabled" className="text-sm font-medium">Enable voice (mic button in the widget)</label>
+            </div>
+            {formData.config.voice?.enabled && (
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Language</label>
+                  <select
+                    value={formData.config.voice?.language || 'en-IN'}
+                    onChange={e => setFormData(prev => ({ ...prev, config: { ...prev.config, voice: { ...prev.config.voice, language: e.target.value } } }))}
+                    className="w-full px-3 py-2 border rounded"
+                  >
+                    {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Voice ID (optional)</label>
+                  <input
+                    type="text"
+                    value={formData.config.voice?.voiceId || ''}
+                    onChange={e => setFormData(prev => ({ ...prev, config: { ...prev.config, voice: { ...prev.config.voice, voiceId: e.target.value } } }))}
+                    placeholder="e.g. meera"
+                    className="w-full px-3 py-2 border rounded"
+                  />
+                </div>
+                <div className="flex items-center gap-2 md:col-span-2">
+                  <input
+                    type="checkbox"
+                    id="voice-visualizer"
+                    checked={formData.config.voice?.showVisualizer !== false}
+                    onChange={e => setFormData(prev => ({ ...prev, config: { ...prev.config, voice: { ...prev.config.voice, showVisualizer: e.target.checked } } }))}
+                  />
+                  <label htmlFor="voice-visualizer" className="text-sm">Show audio visualizer while speaking</label>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t pt-6">
             <h2 className="text-lg font-semibold mb-4">Theme & Branding</h2>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
@@ -321,6 +388,12 @@ export default function WidgetDetailPage({ params }: { params: { id: string } })
             <div className="bg-white shadow rounded-lg p-6">
               <h2 className="text-lg font-semibold mb-3">Configuration</h2>
               <div className="space-y-2 text-sm">
+                <div>
+                  <span className="font-medium text-gray-500">Voice:</span>
+                  <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium ${widget.config.voice?.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                    {widget.config.voice?.enabled ? `Enabled · ${widget.config.voice?.language || 'en-IN'}` : 'Disabled'}
+                  </span>
+                </div>
                 {widget.config.chat?.greeting && <div><span className="font-medium text-gray-500">Greeting:</span> <span className="ml-2">{widget.config.chat.greeting}</span></div>}
                 {widget.config.theme?.primaryColor && <div><span className="font-medium text-gray-500">Primary Color:</span> <span className="ml-2 inline-block w-4 h-4 rounded border" style={{ backgroundColor: widget.config.theme.primaryColor }}></span> {widget.config.theme.primaryColor}</div>}
                 {widget.config.branding?.companyName && <div><span className="font-medium text-gray-500">Company:</span> <span className="ml-2">{widget.config.branding.companyName}</span></div>}

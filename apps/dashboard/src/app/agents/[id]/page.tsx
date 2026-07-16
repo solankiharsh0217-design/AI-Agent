@@ -1,7 +1,38 @@
 'use client';
 import { useAuth } from '@clerk/nextjs';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api, setClerkToken } from '@/lib/api';
+
+const LANGUAGES = [
+  { code: 'en-IN', label: 'English (India)' },
+  { code: 'hi-IN', label: 'Hindi' },
+  { code: 'bn-IN', label: 'Bengali' },
+  { code: 'ta-IN', label: 'Tamil' },
+  { code: 'te-IN', label: 'Telugu' },
+  { code: 'mr-IN', label: 'Marathi' },
+  { code: 'gu-IN', label: 'Gujarati' },
+  { code: 'kn-IN', label: 'Kannada' },
+  { code: 'ml-IN', label: 'Malayalam' },
+  { code: 'pa-IN', label: 'Punjabi' },
+];
+
+interface VoiceConfig {
+  enabled: boolean;
+  language: string;
+  voiceId: string;
+  greeting: string;
+}
+
+function defaultVoice(cfg: any): VoiceConfig {
+  const v = cfg?.voice || {};
+  return {
+    enabled: v.enabled ?? false,
+    language: v.language || 'en-IN',
+    voiceId: v.voiceId || '',
+    greeting: cfg?.greeting || v.greeting || '',
+  };
+}
 
 export default function AgentDetailPage({ params }: { params: { id: string } }) {
   const { getToken } = useAuth();
@@ -9,6 +40,8 @@ export default function AgentDetailPage({ params }: { params: { id: string } }) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [widgets, setWidgets] = useState<any[]>([]);
+  const [numbers, setNumbers] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -17,29 +50,35 @@ export default function AgentDetailPage({ params }: { params: { id: string } }) 
       temperature: 0.7,
       maxTokens: 2048,
       systemPrompt: '',
+      voice: { enabled: false, language: 'en-IN', voiceId: '', greeting: '' } as VoiceConfig,
     },
   });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    getToken().then(t => { setClerkToken(t); loadAgent(); });
+    getToken().then(t => { setClerkToken(t); loadAgent(); loadChannels(); });
   }, [params.id]);
+
+  function toFormData(data: any) {
+    return {
+      name: data.name,
+      description: data.description || '',
+      config: {
+        model: data.config?.model || 'llama-3.1-70b-versatile',
+        temperature: data.config?.temperature ?? 0.7,
+        maxTokens: data.config?.maxTokens ?? 2048,
+        systemPrompt: data.config?.systemPrompt || '',
+        voice: defaultVoice(data.config),
+      },
+    };
+  }
 
   async function loadAgent() {
     try {
       setLoading(true);
       const data = await api.agents.get(params.id);
       setAgent(data);
-      setFormData({
-        name: data.name,
-        description: data.description || '',
-        config: {
-          model: data.config?.model || 'llama-3.1-70b-versatile',
-          temperature: data.config?.temperature ?? 0.7,
-          maxTokens: data.config?.maxTokens ?? 2048,
-          systemPrompt: data.config?.systemPrompt || '',
-        },
-      });
+      setFormData(toFormData(data));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -47,13 +86,31 @@ export default function AgentDetailPage({ params }: { params: { id: string } }) 
     }
   }
 
+  async function loadChannels() {
+    try {
+      const [w, n] = await Promise.all([
+        api.widgets.list().catch(() => []),
+        api.phone.listNumbers().catch(() => []),
+      ]);
+      setWidgets((w || []).filter((x: any) => x.agentId === params.id));
+      setNumbers((n || []).filter((x: any) => x.agentId === params.id));
+    } catch {
+      /* non-fatal */
+    }
+  }
+
   async function handleSave() {
     setSaving(true);
     try {
+      const voice = formData.config.voice;
       await api.agents.update(params.id, {
         name: formData.name,
         description: formData.description,
-        config: formData.config,
+        config: {
+          ...formData.config,
+          // Mirror greeting at top-level too so the phone pipeline can read either.
+          greeting: voice.greeting,
+        },
       });
       setEditing(false);
       await loadAgent();
@@ -62,6 +119,13 @@ export default function AgentDetailPage({ params }: { params: { id: string } }) 
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleVoiceChange(key: keyof VoiceConfig, value: any) {
+    setFormData(prev => ({
+      ...prev,
+      config: { ...prev.config, voice: { ...prev.config.voice, [key]: value } },
+    }));
   }
 
   function handleConfigChange(key: string, value: any) {
@@ -90,7 +154,7 @@ export default function AgentDetailPage({ params }: { params: { id: string } }) 
                 {saving ? 'Saving...' : 'Save'}
               </button>
               <button
-                onClick={() => { setEditing(false); setFormData({ name: agent.name, description: agent.description || '', config: { model: agent.config?.model || 'llama-3.1-70b-versatile', temperature: agent.config?.temperature ?? 0.7, maxTokens: agent.config?.maxTokens ?? 2048, systemPrompt: agent.config?.systemPrompt || '' } }); }}
+                onClick={() => { setEditing(false); setFormData(toFormData(agent)); }}
                 className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
               >
                 Cancel
@@ -184,6 +248,57 @@ export default function AgentDetailPage({ params }: { params: { id: string } }) 
               />
             </div>
           </div>
+
+          <div className="border-t pt-6">
+            <div className="flex items-center gap-2 mb-4">
+              <input
+                id="voice-enabled"
+                type="checkbox"
+                checked={formData.config.voice.enabled}
+                onChange={e => handleVoiceChange('enabled', e.target.checked)}
+              />
+              <label htmlFor="voice-enabled" className="text-lg font-semibold">Voice (phone calls)</label>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              Used when this agent answers assigned phone numbers. Callers are transcribed, the agent replies, and the reply is spoken back.
+            </p>
+            {formData.config.voice.enabled && (
+              <div className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Language</label>
+                    <select
+                      value={formData.config.voice.language}
+                      onChange={e => handleVoiceChange('language', e.target.value)}
+                      className="w-full px-3 py-2 border rounded"
+                    >
+                      {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Voice ID <span className="text-gray-400">(optional)</span></label>
+                    <input
+                      type="text"
+                      value={formData.config.voice.voiceId}
+                      onChange={e => handleVoiceChange('voiceId', e.target.value)}
+                      className="w-full px-3 py-2 border rounded"
+                      placeholder="e.g. meera (blank = default)"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Greeting <span className="text-gray-400">(spoken when the call connects)</span></label>
+                  <textarea
+                    value={formData.config.voice.greeting}
+                    onChange={e => handleVoiceChange('greeting', e.target.value)}
+                    className="w-full px-3 py-2 border rounded text-sm"
+                    rows={2}
+                    placeholder="Hello! Thanks for calling. How can I help you today?"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       ) : (
         <div className="space-y-4">
@@ -198,6 +313,63 @@ export default function AgentDetailPage({ params }: { params: { id: string } }) 
               <pre className="mt-2 p-4 bg-gray-50 rounded whitespace-pre-wrap text-sm">{agent.config.systemPrompt}</pre>
             </div>
           )}
+          <div>
+            <span className="font-medium">Voice:</span>{' '}
+            {agent.config?.voice?.enabled ? (
+              <span className="inline-flex items-center gap-1 text-green-700">
+                Enabled · {LANGUAGES.find(l => l.code === (agent.config?.voice?.language))?.label || agent.config?.voice?.language}
+              </span>
+            ) : (
+              <span className="text-gray-500">Disabled</span>
+            )}
+          </div>
+
+          <div className="border-t pt-6">
+            <h2 className="text-lg font-semibold mb-3">Linked channels</h2>
+
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-medium text-gray-700">Web widgets ({widgets.length})</h3>
+                <Link href="/widgets/new" className="text-sm text-blue-600 hover:underline">+ New widget</Link>
+              </div>
+              {widgets.length === 0 ? (
+                <p className="text-sm text-gray-500">No widgets connected to this agent yet.</p>
+              ) : (
+                <ul className="divide-y border rounded">
+                  {widgets.map(w => (
+                    <li key={w.id} className="flex items-center justify-between px-3 py-2">
+                      <span className="text-sm">
+                        {w.name}
+                        {w.config?.voice?.enabled && (
+                          <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">voice</span>
+                        )}
+                      </span>
+                      <Link href={`/widgets/${w.id}`} className="text-sm text-blue-600 hover:underline">Configure</Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-medium text-gray-700">Phone numbers ({numbers.length})</h3>
+                <Link href="/phone" className="text-sm text-blue-600 hover:underline">Manage numbers</Link>
+              </div>
+              {numbers.length === 0 ? (
+                <p className="text-sm text-gray-500">No phone numbers assigned to this agent yet.</p>
+              ) : (
+                <ul className="divide-y border rounded">
+                  {numbers.map(n => (
+                    <li key={n.id} className="flex items-center justify-between px-3 py-2">
+                      <span className="text-sm font-mono">{n.phoneNumber}</span>
+                      <span className="text-xs text-gray-500">{n.friendlyName || n.provider || 'assigned'}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

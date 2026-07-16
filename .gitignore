@@ -57,3 +57,6 @@ packages/*/src/**/*.d.ts.map
 # Wrangler
 .wrangler/
 .vercel
+
+# Local project reference doc (kept out of the repo)
+IMPROVEMENTS.md

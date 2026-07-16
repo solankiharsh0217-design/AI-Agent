@@ -98,7 +98,7 @@ export class SubscriptionManager {
         await fetch(`https://api.razorpay.com/v1/subscriptions/${subscription.stripeSubscriptionId}/cancel`, {
           method: 'POST',
           headers: {
-            'Authorization': `Basic ${Buffer.from(`${this.razorpayKeyId}:${this.razorpayKeySecret}`).toString('base64')}`,
+            'Authorization': `Basic ${btoa(`${this.razorpayKeyId}:${this.razorpayKeySecret}`)}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ cancel_at_cycle_end: 1 }),

@@ -1,3 +1,27 @@
+import {
+  base64ToUint8,
+  uint8ToBase64,
+  muLawDecode,
+  muLawEncode,
+  pcm16ToWav,
+  wavToPcm16,
+  resamplePcm16,
+  pcmRms,
+} from './audio';
+import { createProviderRegistry } from '../context';
+
+/** Per-call state for the Twilio media (phone voice) pipeline. */
+interface VoiceCallState {
+  streamSid: string;
+  callSid?: string;
+  chunks: Uint8Array[]; // μ-law frames collected for the in-progress utterance
+  speechMs: number;
+  silenceMs: number;
+  inSpeech: boolean;
+  processing: boolean; // true while we transcribe/think/speak (ignore inbound audio)
+  greeted: boolean;
+}
+
 export interface ToolCallRecord {
   id: string;
   name: string;
@@ -43,6 +67,8 @@ export class SessionDurableObject {
   private ctx: DurableObjectState;
   private env: Env;
   private websockets: Set<WebSocket>;
+  private voice?: VoiceCallState;
+  private voiceSettings?: { language: string; voiceId?: string; greeting?: string };
 
   constructor(ctx: DurableObjectState, env: Env) {
     this.ctx = ctx;
@@ -184,16 +210,28 @@ export class SessionDurableObject {
       if (data.event) {
         switch (data.event) {
           case 'start':
+            this.voice = {
+              streamSid: data.streamSid,
+              callSid: data.start?.callSid,
+              chunks: [],
+              speechMs: 0,
+              silenceMs: 0,
+              inSpeech: false,
+              processing: false,
+              greeted: false,
+            };
             this.broadcast({
               type: 'telephony:call_started',
               callSid: data.start?.callSid,
               streamSid: data.streamSid,
             });
+            this.ctx.waitUntil(this.handleTwilioStart(ws));
             break;
           case 'media':
-            // Telephony raw audio packet - can be piped to STT/TTS in full integration
+            this.handleTwilioMedia(ws, data.streamSid, data.media?.payload);
             break;
           case 'stop':
+            this.voice = undefined;
             this.broadcast({
               type: 'telephony:call_ended',
               streamSid: data.streamSid,
@@ -376,106 +414,24 @@ export class SessionDurableObject {
 
   // --- Dynamic turn processing implementations ---
 
-  private async handlePostMessage(body: { content: string; widgetId?: string }): Promise<unknown> {
-    try {
-      const dbSessionId = await this.ctx.storage.get<string>('dbSessionId');
-      if (!dbSessionId) {
-        throw new Error('No session ID associated with this Durable Object');
+  /**
+   * Build the AgentRuntime + context/config for this session's agent. Shared by every
+   * channel (HTTP text turn, streaming chat, and phone voice) so the wiring lives in one place.
+   */
+  private async buildRuntime(): Promise<
+    | {
+        runtime: any;
+        runtimeContext: any;
+        runtimeConfig: any;
+        agentConfig: any;
+        registry: any;
+        dbSession: any;
       }
-
-      const { createDatabase, SessionRepository, ConversationRepository, AgentRepository } = await import('@ai-agent/database');
-      const { createProviderRegistry } = await import('../context');
-      const { AgentRuntime, MemoryEngine, PlannerEngine, KnowledgeEngine, PromptBuilder, ToolRegistry, EventBus, SessionManager } = await import('@ai-agent/agent');
-      const { Logger } = await import('@ai-agent/shared');
-
-      const db = createDatabase(this.env.DB);
-      const sessionRepo = new SessionRepository(db as any);
-      const convRepo = new ConversationRepository(db as any);
-      const agentRepo = new AgentRepository(db as any);
-
-      const tenantId = await this.ctx.storage.get<string>('tenantId');
-      if (!tenantId) {
-        throw new Error('No tenant ID associated with this session');
-      }
-
-      const dbSession = await sessionRepo.findById(dbSessionId, tenantId);
-      if (!dbSession) {
-        throw new Error(`Session not found: ${dbSessionId}`);
-      }
-
-      const agent = await agentRepo.findById(dbSession.agentId, dbSession.tenantId);
-      if (!agent) {
-        throw new Error(`Agent not found: ${dbSession.agentId}`);
-      }
-
-      const logger = new Logger({ service: 'session-durable-object' });
-      const registry = createProviderRegistry(this.env as any);
-      const agentConfig = typeof agent.config === 'string' ? JSON.parse(agent.config) : agent.config;
-
-      const runtime = new AgentRuntime({
-        llm: registry.getLLM(agentConfig.provider || 'groq'),
-        promptBuilder: new PromptBuilder(),
-        planner: new PlannerEngine(),
-        memory: new MemoryEngine(convRepo as any),
-        knowledge: KnowledgeEngine.createWithVectorize(registry.getEmbedding('workers-ai'), this.env.VECTORIZE as any),
-        tools: new ToolRegistry(),
-        eventBus: new EventBus(),
-        sessionManager: new SessionManager(sessionRepo as any, convRepo as any),
-        logger,
-      });
-
-      const runtimeContext = {
-        tenantId: dbSession.tenantId,
-        agentId: dbSession.agentId,
-        conversationId: dbSession.conversationId,
-        sessionId: dbSession.id,
-        channel: dbSession.channel,
-      };
-
-      const runtimeConfig = {
-        model: agentConfig.model || 'llama-3.1-70b-versatile',
-        temperature: agentConfig.temperature ?? 0.7,
-        maxTokens: agentConfig.maxTokens ?? 2048,
-        systemPrompt: agentConfig.systemPrompt || '',
-        knowledgeBaseIds: agentConfig.knowledgeBaseIds || [],
-        memoryConfig: agentConfig.memoryConfig || { enabled: true, maxMessages: 20, maxTokens: 4000 },
-        retrievalConfig: { topK: 3, scoreThreshold: 0.5, enableReranking: false },
-        enableTools: agentConfig.tools && agentConfig.tools.length > 0,
-        enableKnowledge: agentConfig.knowledgeBaseIds && agentConfig.knowledgeBaseIds.length > 0,
-      };
-
-      const result = await runtime.processTurn(body.content, runtimeContext, runtimeConfig);
-
-      const state = await this.getState();
-      state.messageCount += 2;
-      state.lastUserMessage = body.content;
-      state.lastAssistantMessage = result.content;
-      state.updatedAt = new Date().toISOString();
-      await this.ctx.storage.put('session', state);
-      this.broadcast({ type: 'state:updated', data: state });
-
-      return {
-        success: true,
-        data: {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: result.content,
-          timestamp: Date.now(),
-        },
-      };
-    } catch (err) {
-      return {
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: (err as Error).message },
-      };
-    }
-  }
-
-  private async handleWebSocketChatSend(ws: WebSocket, payload: { content: string }): Promise<void> {
+    | { error: string }
+  > {
     const dbSessionId = await this.ctx.storage.get<string>('dbSessionId');
     if (!dbSessionId) {
-      ws.send(JSON.stringify({ type: 'error', message: 'No active session found for this socket' }));
-      return;
+      return { error: 'No session ID associated with this Durable Object' };
     }
 
     const { createDatabase, SessionRepository, ConversationRepository, AgentRepository } = await import('@ai-agent/database');
@@ -490,20 +446,17 @@ export class SessionDurableObject {
 
     const tenantId = await this.ctx.storage.get<string>('tenantId');
     if (!tenantId) {
-      ws.send(JSON.stringify({ type: 'error', message: 'No tenant ID associated with this session' }));
-      return;
+      return { error: 'No tenant ID associated with this session' };
     }
 
     const dbSession = await sessionRepo.findById(dbSessionId, tenantId);
     if (!dbSession) {
-      ws.send(JSON.stringify({ type: 'error', message: `Session not found: ${dbSessionId}` }));
-      return;
+      return { error: `Session not found: ${dbSessionId}` };
     }
 
     const agent = await agentRepo.findById(dbSession.agentId, dbSession.tenantId);
     if (!agent) {
-      ws.send(JSON.stringify({ type: 'error', message: `Agent not found: ${dbSession.agentId}` }));
-      return;
+      return { error: `Agent not found: ${dbSession.agentId}` };
     }
 
     const logger = new Logger({ service: 'session-durable-object' });
@@ -541,6 +494,211 @@ export class SessionDurableObject {
       enableTools: agentConfig.tools && agentConfig.tools.length > 0,
       enableKnowledge: agentConfig.knowledgeBaseIds && agentConfig.knowledgeBaseIds.length > 0,
     };
+
+    return { runtime, runtimeContext, runtimeConfig, agentConfig, registry, dbSession };
+  }
+
+  /** Run one non-streaming agent turn and persist session bookkeeping. Used by text + voice. */
+  private async runAgentTurn(content: string): Promise<{ content: string }> {
+    const built = await this.buildRuntime();
+    if ('error' in built) {
+      throw new Error(built.error);
+    }
+    const { runtime, runtimeContext, runtimeConfig } = built;
+
+    const result = await runtime.processTurn(content, runtimeContext, runtimeConfig);
+
+    const state = await this.getState();
+    state.messageCount += 2;
+    state.lastUserMessage = content;
+    state.lastAssistantMessage = result.content;
+    state.updatedAt = new Date().toISOString();
+    await this.ctx.storage.put('session', state);
+    this.broadcast({ type: 'state:updated', data: state });
+
+    return { content: result.content };
+  }
+
+  private async handlePostMessage(body: { content: string; widgetId?: string }): Promise<unknown> {
+    try {
+      const result = await this.runAgentTurn(body.content);
+      return {
+        success: true,
+        data: {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: result.content,
+          timestamp: Date.now(),
+        },
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: (err as Error).message },
+      };
+    }
+  }
+
+  // --- Phone voice pipeline (Twilio Media Streams) ---
+
+  /** Resolve the agent's voice settings (language / voiceId / greeting), cached per call. */
+  private async getVoiceSettings(): Promise<{ language: string; voiceId?: string; greeting?: string }> {
+    if (this.voiceSettings) return this.voiceSettings;
+    const built = await this.buildRuntime();
+    if ('error' in built) {
+      this.voiceSettings = { language: 'en-IN' };
+      return this.voiceSettings;
+    }
+    const cfg = built.agentConfig || {};
+    const voiceCfg = cfg.voice || {};
+    this.voiceSettings = {
+      language: voiceCfg.language || 'en-IN',
+      voiceId: voiceCfg.voiceId || undefined,
+      greeting: cfg.greeting || voiceCfg.greeting || undefined,
+    };
+    return this.voiceSettings;
+  }
+
+  /** On call start, greet the caller (TTS) if a greeting is configured. */
+  private async handleTwilioStart(ws: WebSocket): Promise<void> {
+    try {
+      const settings = await this.getVoiceSettings();
+      const greeting = settings.greeting;
+      if (!greeting || !this.voice) return;
+      this.voice.greeted = true;
+      await this.speak(ws, this.voice.streamSid, greeting);
+    } catch {
+      // Greeting is best-effort; the caller can still speak first.
+    }
+  }
+
+  /**
+   * Handle one inbound 20ms μ-law frame. Runs energy-based VAD to detect the end of an
+   * utterance, then transcribes → thinks → speaks the reply (batch per-utterance).
+   */
+  private handleTwilioMedia(ws: WebSocket, streamSid: string, payloadB64?: string): void {
+    const v = this.voice;
+    if (!v || !payloadB64) return;
+    // Ignore inbound audio while we're transcribing/thinking/speaking (no barge-in).
+    if (v.processing) return;
+
+    const FRAME_MS = 20;
+    const SPEECH_THRESHOLD = 500; // RMS on decoded PCM16
+    const END_SILENCE_MS = 700; // trailing silence that ends an utterance
+    const MIN_SPEECH_MS = 300; // ignore blips shorter than this
+
+    const mu = base64ToUint8(payloadB64);
+    const pcm = muLawDecode(mu);
+    const rms = pcmRms(pcm);
+
+    if (rms > SPEECH_THRESHOLD) {
+      v.inSpeech = true;
+      v.silenceMs = 0;
+      v.speechMs += FRAME_MS;
+      v.chunks.push(mu);
+    } else if (v.inSpeech) {
+      v.silenceMs += FRAME_MS;
+      v.chunks.push(mu); // keep trailing silence for a natural cutoff
+      if (v.silenceMs >= END_SILENCE_MS) {
+        if (v.speechMs >= MIN_SPEECH_MS) {
+          const total = v.chunks.reduce((n, c) => n + c.length, 0);
+          const utterance = new Uint8Array(total);
+          let off = 0;
+          for (const c of v.chunks) { utterance.set(c, off); off += c.length; }
+          v.processing = true;
+          this.ctx.waitUntil(
+            this.processUtterance(ws, streamSid, utterance).finally(() => {
+              if (this.voice) this.voice.processing = false;
+            })
+          );
+        }
+        v.chunks = [];
+        v.speechMs = 0;
+        v.silenceMs = 0;
+        v.inSpeech = false;
+      }
+    }
+  }
+
+  /** Transcribe a μ-law utterance, run the agent, and speak the reply back over the stream. */
+  private async processUtterance(ws: WebSocket, streamSid: string, mulaw: Uint8Array): Promise<void> {
+    try {
+      const settings = await this.getVoiceSettings();
+      const registry = createProviderRegistry(this.env as any);
+
+      // μ-law 8kHz → PCM16 → WAV for Sarvam STT.
+      const pcm8k = muLawDecode(mulaw);
+      const wav = pcm16ToWav(pcm8k, 8000);
+      const stt = registry.getSTT();
+      const sttResult = await stt.transcribe({ audio: wav, mimeType: 'audio/wav', language: settings.language });
+      const transcript = (sttResult?.text || '').trim();
+      if (!transcript) return;
+
+      this.broadcast({ type: 'voice:transcript', role: 'user', text: transcript });
+
+      const reply = await this.runAgentTurn(transcript);
+      await this.speak(ws, streamSid, reply.content);
+
+      // Track voice usage (metering only — not enforced yet).
+      await this.trackVoiceUsage(sttResult?.durationMs ?? 0, 0);
+    } catch (err) {
+      this.broadcast({ type: 'voice:error', message: (err as Error).message });
+    }
+  }
+
+  /** Synthesize `text` and stream it back to Twilio as 20ms μ-law media frames. */
+  private async speak(ws: WebSocket, streamSid: string, text: string): Promise<void> {
+    if (!text) return;
+    const settings = await this.getVoiceSettings();
+    const registry = createProviderRegistry(this.env as any);
+    const tts = registry.getTTS();
+    const ttsResult = await tts.synthesize({
+      text,
+      language: settings.language,
+      voiceId: settings.voiceId,
+      outputFormat: 'wav',
+    });
+
+    const { pcm, sampleRate } = wavToPcm16(ttsResult.audio);
+    const pcm8k = resamplePcm16(pcm, sampleRate, 8000);
+    const outMu = muLawEncode(pcm8k);
+
+    const FRAME = 160; // 20ms of 8kHz μ-law
+    for (let i = 0; i < outMu.length; i += FRAME) {
+      const slice = outMu.subarray(i, Math.min(i + FRAME, outMu.length));
+      ws.send(JSON.stringify({ event: 'media', streamSid, media: { payload: uint8ToBase64(slice) } }));
+    }
+    ws.send(JSON.stringify({ event: 'mark', streamSid, mark: { name: `resp-${Date.now()}` } }));
+
+    this.broadcast({ type: 'voice:transcript', role: 'assistant', text });
+    await this.trackVoiceUsage(0, ttsResult?.durationMs ?? 0);
+  }
+
+  /** Accumulate STT/TTS milliseconds into session state for later billing/analytics. */
+  private async trackVoiceUsage(sttMs: number, ttsMs: number): Promise<void> {
+    if (!sttMs && !ttsMs) return;
+    const state = await this.getState();
+    const usage = (state.context.voiceUsage as { sttMs: number; ttsMs: number; utterances: number } | undefined) ?? {
+      sttMs: 0,
+      ttsMs: 0,
+      utterances: 0,
+    };
+    usage.sttMs += sttMs;
+    usage.ttsMs += ttsMs;
+    if (sttMs) usage.utterances += 1;
+    state.context.voiceUsage = usage;
+    state.updatedAt = new Date().toISOString();
+    await this.ctx.storage.put('session', state);
+    this.broadcast({ type: 'voice:usage', data: usage });
+  }
+
+  private async handleWebSocketChatSend(ws: WebSocket, payload: { content: string }): Promise<void> {
+    const built = await this.buildRuntime();
+    if ('error' in built) {
+      ws.send(JSON.stringify({ type: 'error', message: built.error }));
+      return;
+    }
+    const { runtime, runtimeContext, runtimeConfig } = built;
 
     ws.send(JSON.stringify({
       type: 'typing',

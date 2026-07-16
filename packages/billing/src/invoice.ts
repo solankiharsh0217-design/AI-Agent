@@ -3,7 +3,6 @@ import type { DrizzleD1Database } from 'drizzle-orm/d1';
 import type { InvoiceStatus, BillingMetric } from '@ai-agent/types';
 import { PricingEngine, type InvoiceLineItemInput } from './pricing';
 import { AppError } from '@ai-agent/shared';
-import crypto from 'crypto';
 
 interface PaginationParams {
   page?: number;

@@ -207,7 +207,19 @@ phone.post('/webhook/voice', async (c: Context) => {
 
   const host = c.req.header('Host') || 'api.yourdomain.com';
   const protocol = host.includes('localhost') || host.includes('127.0.0.1') ? 'ws' : 'wss';
-  const streamUrl = `${protocol}://${host}/twilio/media?CallSid=${callSid}`;
+
+  // Issue a signed token bound to this CallSid so the media WebSocket can be
+  // authenticated (Twilio doesn't sign the media stream upgrade).
+  const internalSecret = (c.env as any).INTERNAL_API_SECRET as string;
+  const { signCallToken } = await import('../twilio-stream-token');
+  const streamToken = await signCallToken(internalSecret, callSid);
+
+  const query = new URLSearchParams({
+    CallSid: callSid,
+    tenantId: numberRecord.tenantId,
+    token: streamToken,
+  });
+  const streamUrl = `${protocol}://${host}/twilio/media?${query.toString()}`;
 
   return c.body(
     `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="${streamUrl}" /></Connect></Response>`,

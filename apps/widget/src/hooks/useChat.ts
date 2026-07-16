@@ -35,7 +35,14 @@ interface WidgetConfig {
     suggestedPrompts?: string[];
     enterToSend?: boolean;
   };
+  voice?: {
+    enabled?: boolean;
+    language?: string;
+    showVisualizer?: boolean;
+  };
 }
+
+type VoiceState = 'idle' | 'recording' | 'processing' | 'speaking';
 
 export function useChat({ widgetId, apiUrl }: UseChatOptions) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -45,10 +52,16 @@ export function useChat({ widgetId, apiUrl }: UseChatOptions) {
   const [config, setConfig] = useState<WidgetConfig | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [tenantId, setTenantId] = useState<string | null>(null);
+  const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const wsRef = useRef<WebSocket | null>(null);
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectAttempts = useRef(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     async function loadConfig() {
@@ -362,8 +375,160 @@ useEffect(() => {
     [widgetId, sessionId, apiUrl]
   );
 
+  // Keep a ref of the latest sessionId so voice callbacks aren't stale
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  const playAudio = useCallback((base64: string, format: string) => {
+    try {
+      const mime = format === 'mp3' ? 'audio/mpeg' : format === 'opus' ? 'audio/ogg' : 'audio/wav';
+      const audio = new Audio(`data:${mime};base64,${base64}`);
+      audioElRef.current = audio;
+      setVoiceState('speaking');
+      audio.onended = () => setVoiceState('idle');
+      audio.onerror = () => setVoiceState('idle');
+      audio.play().catch(() => setVoiceState('idle'));
+    } catch {
+      setVoiceState('idle');
+    }
+  }, []);
+
+  const sendVoice = useCallback(
+    async (audioBlob: Blob) => {
+      const sid = sessionIdRef.current;
+      if (!sid) {
+        setVoiceState('idle');
+        return;
+      }
+      setVoiceState('processing');
+      try {
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.webm');
+        formData.append('sessionId', sid);
+
+        const res = await fetch(`${apiUrl}/api/widgets/${widgetId}/voice`, {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json();
+
+        if (data.success && data.data) {
+          const { transcript, reply, audio, audioFormat } = data.data;
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: 'user',
+              content: transcript,
+              timestamp: Date.now(),
+              status: 'sent',
+            },
+            {
+              id: reply?.id || crypto.randomUUID(),
+              role: 'assistant',
+              content: reply?.content || '',
+              timestamp: reply?.timestamp || Date.now(),
+            },
+          ]);
+          if (audio) {
+            playAudio(audio, audioFormat || 'wav');
+          } else {
+            setVoiceState('idle');
+          }
+        } else {
+          const msg = data.error?.message || 'Voice request failed';
+          setMessages((prev) => [
+            ...prev,
+            { id: crypto.randomUUID(), role: 'assistant', content: `Error: ${msg}`, timestamp: Date.now() },
+          ]);
+          setVoiceState('idle');
+        }
+      } catch {
+        setMessages((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), role: 'assistant', content: 'Error: could not reach voice service.', timestamp: Date.now() },
+        ]);
+        setVoiceState('idle');
+      }
+    },
+    [apiUrl, widgetId, playAudio]
+  );
+
+  const stopRecording = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop();
+    }
+    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+    mediaStreamRef.current = null;
+  }, []);
+
+  const startRecording = useCallback(async () => {
+    // If audio is playing, stop it before recording a new turn
+    if (audioElRef.current) {
+      audioElRef.current.pause();
+      audioElRef.current = null;
+    }
+    if (voiceState === 'processing') return;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      audioChunksRef.current = [];
+
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : '';
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        audioChunksRef.current = [];
+        if (blob.size > 0) {
+          sendVoice(blob);
+        } else {
+          setVoiceState('idle');
+        }
+      };
+
+      recorder.start();
+      setVoiceState('recording');
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), role: 'assistant', content: 'Error: microphone access was denied.', timestamp: Date.now() },
+      ]);
+      setVoiceState('idle');
+    }
+  }, [voiceState, sendVoice]);
+
+  // Tap-to-talk toggle: start when idle, stop-and-send when recording
+  const toggleRecording = useCallback(() => {
+    if (voiceState === 'recording') {
+      stopRecording();
+    } else if (voiceState === 'idle') {
+      startRecording();
+    }
+  }, [voiceState, startRecording, stopRecording]);
+
+  // Clean up mic + audio on unmount
+  useEffect(() => {
+    return () => {
+      mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+      if (audioElRef.current) audioElRef.current.pause();
+    };
+  }, []);
+
   const suggestedPrompts = config?.chat?.suggestedPrompts || [];
   const greeting = config?.chat?.greeting || null;
+  const voiceEnabled = config?.voice?.enabled === true;
 
   return {
     messages,
@@ -376,5 +541,8 @@ useEffect(() => {
     suggestedPrompts,
     greeting,
     config,
+    voiceEnabled,
+    voiceState,
+    toggleRecording,
   };
 }

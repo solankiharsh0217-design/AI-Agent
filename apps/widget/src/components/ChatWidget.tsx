@@ -21,6 +21,9 @@ export default function ChatWidget({ widgetId, apiUrl }: ChatWidgetProps) {
     suggestedPrompts,
     greeting,
     config,
+    voiceEnabled,
+    voiceState,
+    toggleRecording,
   } = useChat({ widgetId, apiUrl });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -144,11 +147,51 @@ export default function ChatWidget({ widgetId, apiUrl }: ChatWidgetProps) {
         <div ref={messagesEndRef} />
       </div>
 
+      {voiceEnabled && voiceState !== 'idle' && (
+        <div className="px-4 pt-2 text-center text-xs text-gray-500">
+          {voiceState === 'recording' && 'Listening… tap the mic to send'}
+          {voiceState === 'processing' && 'Thinking…'}
+          {voiceState === 'speaking' && 'Speaking… tap the mic to interrupt'}
+        </div>
+      )}
+
       <form
         onSubmit={handleSubmit}
         className="px-4 py-3 border-t flex items-end gap-2"
         style={{ borderTopColor: config?.theme?.secondaryColor || '#e5e7eb' }}
       >
+        {voiceEnabled && (
+          <button
+            type="button"
+            onClick={toggleRecording}
+            disabled={connectionState === 'disconnected' || connectionState === 'error' || voiceState === 'processing'}
+            aria-label={voiceState === 'recording' ? 'Stop recording and send' : 'Start voice recording'}
+            title={voiceState === 'recording' ? 'Stop and send' : 'Speak'}
+            className={`p-2 rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all ${
+              voiceState === 'recording' ? 'animate-pulse' : ''
+            }`}
+            style={{
+              backgroundColor:
+                voiceState === 'recording' ? '#ef4444' : config?.theme?.primaryColor || '#3B82F6',
+            }}
+          >
+            {voiceState === 'processing' ? (
+              <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+              </svg>
+            ) : voiceState === 'recording' ? (
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" />
+              </svg>
+            )}
+          </button>
+        )}
         <textarea
           ref={textareaRef}
           value={input}

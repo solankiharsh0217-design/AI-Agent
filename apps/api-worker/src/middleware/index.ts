@@ -142,7 +142,14 @@ async function verifyClerkToken(token: string, clerkPublishableKey: string, env:
     // Validate audience if present
     if (payload.aud) {
       const audience = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-      const hasValidAudience = audience.some(a => a === payload.iss || a === clerkPublishableKey);
+      // Clerk tokens typically have the frontend API URL as audience (e.g., https://app.clerk.accounts.dev)
+      // Accept if audience matches issuer or is a valid Clerk domain
+      const hasValidAudience = audience.some((a: string) =>
+        a === payload.iss ||
+        a.includes('.clerk.accounts.dev') ||
+        a.includes('.clerk.dev') ||
+        a.includes('clerk.app')
+      );
       if (!hasValidAudience) {
         return { payload: null, error: `Audience mismatch: got=${JSON.stringify(payload.aud)}` };
       }
