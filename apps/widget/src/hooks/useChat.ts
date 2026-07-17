@@ -40,6 +40,10 @@ interface WidgetConfig {
     language?: string;
     showVisualizer?: boolean;
   };
+  features?: {
+    chat?: boolean;
+    voice?: boolean;
+  };
 }
 
 type VoiceState = 'idle' | 'recording' | 'processing' | 'speaking';
@@ -49,6 +53,7 @@ export function useChat({ widgetId, apiUrl }: UseChatOptions) {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [config, setConfig] = useState<WidgetConfig | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [tenantId, setTenantId] = useState<string | null>(null);
@@ -66,7 +71,15 @@ export function useChat({ widgetId, apiUrl }: UseChatOptions) {
   useEffect(() => {
     async function loadConfig() {
       try {
-        const res = await fetch(`${apiUrl}/api/widgets/${widgetId}`);
+        const parentUrl = typeof document !== 'undefined' ? document.referrer : '';
+        const url = new URL(`${apiUrl}/api/widgets/${widgetId}`);
+        if (parentUrl) {
+          url.searchParams.set('parentUrl', parentUrl);
+        }
+        const res = await fetch(url.toString(), {
+          headers: parentUrl ? { 'X-Parent-Origin': parentUrl } : {},
+          cache: 'no-store'
+        });
         const data = await res.json();
         if (data.success) {
           setConfig(data.data.config);
@@ -81,20 +94,34 @@ export function useChat({ widgetId, apiUrl }: UseChatOptions) {
 useEffect(() => {
     async function createSession() {
       try {
-        const res = await fetch(`${apiUrl}/api/widgets/${widgetId}/sessions`, {
+        const parentUrl = typeof document !== 'undefined' ? document.referrer : '';
+        const url = new URL(`${apiUrl}/api/widgets/${widgetId}/sessions`);
+        if (parentUrl) {
+          url.searchParams.set('parentUrl', parentUrl);
+        }
+        const res = await fetch(url.toString(), {
           method: 'POST',
+          headers: parentUrl ? { 'X-Parent-Origin': parentUrl } : {},
+          cache: 'no-store',
         });
-        const data = await res.json();
-        if (data.success) {
+        const data = await res.json().catch(() => null);
+        if (data && data.success) {
+          setConnectionError(null);
           setSessionId(data.data.id);
           setTenantId(data.data.tenantId);
           // Don't set connected here - wait for WS onopen (W7)
           connectStream(data.data.id, data.data.tenantId);
         } else {
           setConnectionState('error');
+          setConnectionError(
+            data?.error?.code === 'UNAUTHORIZED_DOMAIN'
+              ? 'This website is not authorized for this widget. Add its address to the widget’s allowed domains in the dashboard.'
+              : data?.error?.message || 'Unable to connect to the assistant.'
+          );
         }
       } catch {
         setConnectionState('error');
+        setConnectionError('Could not reach the assistant service. Check your connection and try again.');
       }
     }
     createSession();
@@ -250,11 +277,19 @@ useEffect(() => {
               setConnectionState('connecting');
               // W5: Create new session on reconnect instead of reusing stale sessionId
               try {
-                const res = await fetch(`${apiUrl}/api/widgets/${widgetId}/sessions`, {
+                const parentUrl = typeof document !== 'undefined' ? document.referrer : '';
+                const url = new URL(`${apiUrl}/api/widgets/${widgetId}/sessions`);
+                if (parentUrl) {
+                  url.searchParams.set('parentUrl', parentUrl);
+                }
+                const res = await fetch(url.toString(), {
                   method: 'POST',
+                  headers: parentUrl ? { 'X-Parent-Origin': parentUrl } : {},
+                  cache: 'no-store',
                 });
-                const data = await res.json();
-                if (data.success) {
+                const data = await res.json().catch(() => null);
+                if (data && data.success) {
+                  setConnectionError(null);
                   setSessionId(data.data.id);
                   setTenantId(data.data.tenantId);
                   connectStream(data.data.id, data.data.tenantId);
@@ -292,9 +327,16 @@ useEffect(() => {
         );
       } else {
         try {
-          const res = await fetch(`${apiUrl}/api/widgets/${widgetId}/messages`, {
+          const parentUrl = typeof document !== 'undefined' ? document.referrer : '';
+          const url = new URL(`${apiUrl}/api/widgets/${widgetId}/messages`);
+          if (parentUrl) {
+            url.searchParams.set('parentUrl', parentUrl);
+          }
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (parentUrl) headers['X-Parent-Origin'] = parentUrl;
+          const res = await fetch(url.toString(), {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ content: message.content, sessionId }),
           });
           const data = await res.json();
@@ -346,9 +388,16 @@ useEffect(() => {
         setMessages(prev => prev.map(m => m.id === userMessage.id ? { ...m, status: 'sent' } : m));
       } else {
         try {
-          const res = await fetch(`${apiUrl}/api/widgets/${widgetId}/messages`, {
+          const parentUrl = typeof document !== 'undefined' ? document.referrer : '';
+          const url = new URL(`${apiUrl}/api/widgets/${widgetId}/messages`);
+          if (parentUrl) {
+            url.searchParams.set('parentUrl', parentUrl);
+          }
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (parentUrl) headers['X-Parent-Origin'] = parentUrl;
+          const res = await fetch(url.toString(), {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ content, sessionId }),
           });
           const data = await res.json();
@@ -407,8 +456,16 @@ useEffect(() => {
         formData.append('audio', audioBlob, 'recording.webm');
         formData.append('sessionId', sid);
 
-        const res = await fetch(`${apiUrl}/api/widgets/${widgetId}/voice`, {
+        const parentUrl = typeof document !== 'undefined' ? document.referrer : '';
+        const url = new URL(`${apiUrl}/api/widgets/${widgetId}/voice`);
+        if (parentUrl) {
+          url.searchParams.set('parentUrl', parentUrl);
+        }
+        const headers: Record<string, string> = {};
+        if (parentUrl) headers['X-Parent-Origin'] = parentUrl;
+        const res = await fetch(url.toString(), {
           method: 'POST',
+          headers,
           body: formData,
         });
         const data = await res.json();
@@ -489,7 +546,11 @@ useEffect(() => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        let finalMimeType = recorder.mimeType || 'audio/webm';
+        if (finalMimeType.includes(';')) {
+          finalMimeType = finalMimeType.split(';')[0].trim();
+        }
+        const blob = new Blob(audioChunksRef.current, { type: finalMimeType });
         audioChunksRef.current = [];
         if (blob.size > 0) {
           sendVoice(blob);
@@ -529,6 +590,9 @@ useEffect(() => {
   const suggestedPrompts = config?.chat?.suggestedPrompts || [];
   const greeting = config?.chat?.greeting || null;
   const voiceEnabled = config?.voice?.enabled === true;
+  // Voice-only widget: features.chat explicitly false and voice on. Otherwise
+  // chat is available (default true for backward compatibility).
+  const chatEnabled = config?.features?.chat !== false || !voiceEnabled;
 
   return {
     messages,
@@ -538,10 +602,12 @@ useEffect(() => {
     retryMessage,
     isTyping,
     connectionState,
+    connectionError,
     suggestedPrompts,
     greeting,
     config,
     voiceEnabled,
+    chatEnabled,
     voiceState,
     toggleRecording,
   };

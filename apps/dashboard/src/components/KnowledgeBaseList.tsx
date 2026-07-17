@@ -1,7 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api';
+import { EmptyState, LoadingState } from '@/components/ui';
+import { KnowledgeIcon, PlusIcon } from '@/components/icons';
 
 interface KnowledgeBase {
   id: string;
@@ -20,6 +23,7 @@ export function KnowledgeBaseList() {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,6 +43,7 @@ export function KnowledgeBaseList() {
 
   async function handleCreate() {
     if (!newName.trim()) return;
+    setCreating(true);
     try {
       const kb = await api.knowledge.create({ name: newName, description: newDescription });
       setKnowledgeBases([kb, ...knowledgeBases]);
@@ -47,6 +52,8 @@ export function KnowledgeBaseList() {
       setNewDescription('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create knowledge base');
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -60,99 +67,59 @@ export function KnowledgeBaseList() {
     }
   }
 
-  if (loading) return <div className="text-center py-8">Loading...</div>;
-  if (error) return <div className="text-center py-8 text-red-500">{error}</div>;
+  if (loading) return <LoadingState />;
+  if (error) return <div className="card p-4 text-sm text-red-600">{error}</div>;
 
   return (
-    <div className="bg-white shadow rounded-lg">
-      <div className="px-4 py-5 sm:px-6 flex justify-between items-center">
-        <h3 className="text-lg leading-6 font-medium text-gray-900">Knowledge Bases</h3>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
-        >
-          Create Knowledge Base
+    <div className="space-y-6">
+      <div className="flex justify-end">
+        <button onClick={() => setShowCreate(v => !v)} className="btn-primary">
+          <PlusIcon width={16} height={16} /> New Knowledge Base
         </button>
       </div>
 
       {showCreate && (
-        <div className="px-4 py-4 border-t border-gray-200 bg-gray-50">
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Name</label>
-              <input
-                type="text"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                placeholder="My Knowledge Base"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Description</label>
-              <textarea
-                value={newDescription}
-                onChange={(e) => setNewDescription(e.target.value)}
-                rows={3}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                placeholder="Optional description"
-              />
-            </div>
-            <div className="flex justify-end space-x-2">
-              <button
-                onClick={() => setShowCreate(false)}
-                className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreate}
-                className="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
-              >
-                Create
-              </button>
-            </div>
+        <div className="card-p space-y-4">
+          <div>
+            <label className="label">Name</label>
+            <input type="text" value={newName} onChange={e => setNewName(e.target.value)} className="input" placeholder="My Knowledge Base" />
+          </div>
+          <div>
+            <label className="label">Description</label>
+            <textarea value={newDescription} onChange={e => setNewDescription(e.target.value)} rows={3} className="textarea" placeholder="Optional description" />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setShowCreate(false)} className="btn-secondary">Cancel</button>
+            <button onClick={handleCreate} disabled={creating || !newName.trim()} className="btn-primary">
+              {creating ? 'Creating…' : 'Create'}
+            </button>
           </div>
         </div>
       )}
 
-      <div className="border-t border-gray-200">
-        {knowledgeBases.length === 0 ? (
-          <div className="px-4 py-8 text-center text-gray-500">
-            No knowledge bases yet. Create your first knowledge base to get started.
-          </div>
-        ) : (
-          <ul className="divide-y divide-gray-200">
-            {knowledgeBases.map((kb) => (
-              <li key={kb.id} className="px-4 py-4 sm:px-6 hover:bg-gray-50">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-indigo-600 truncate">{kb.name}</p>
-                    <p className="text-sm text-gray-500 truncate">{kb.description}</p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      {kb.documentCount} documents, {kb.chunkCount} chunks
-                    </p>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <a
-                      href={`/knowledge/${kb.id}`}
-                      className="text-indigo-600 hover:text-indigo-900 text-sm font-medium"
-                    >
-                      Manage
-                    </a>
-                    <button
-                      onClick={() => handleDelete(kb.id)}
-                      className="text-red-600 hover:text-red-900 text-sm font-medium"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {knowledgeBases.length === 0 ? (
+        <EmptyState
+          icon={<KnowledgeIcon />}
+          title="No knowledge bases yet"
+          description="Create a knowledge base and upload documents so your agents can answer from your own content."
+        />
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {knowledgeBases.map((kb) => (
+            <div key={kb.id} className="card flex flex-col p-5">
+              <Link href={`/knowledge/${kb.id}`} className="min-w-0">
+                <h3 className="truncate font-semibold text-slate-900 hover:text-indigo-600">{kb.name}</h3>
+              </Link>
+              <p className="mt-1 line-clamp-2 flex-1 text-sm text-slate-500">{kb.description || 'No description'}</p>
+              <p className="mt-3 text-xs text-slate-400">{kb.documentCount} documents · {kb.chunkCount} chunks</p>
+              <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3">
+                <Link href={`/knowledge/${kb.id}`} className="btn-secondary btn-sm">Manage</Link>
+                <button onClick={() => handleDelete(kb.id)} className="btn-ghost btn-sm ml-auto text-red-600 hover:bg-red-50">Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

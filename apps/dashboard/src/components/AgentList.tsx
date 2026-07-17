@@ -1,8 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api';
 import { CardSkeleton } from '@/components/LoadingSkeleton';
+import { Badge, EmptyState } from '@/components/ui';
+import { AgentsIcon } from '@/components/icons';
 
 interface Agent {
   id: string;
@@ -10,6 +13,12 @@ interface Agent {
   description: string;
   status: string;
   createdAt: string;
+}
+
+function statusTone(status: string): 'green' | 'amber' | 'gray' {
+  if (status === 'published') return 'green';
+  if (status === 'draft') return 'amber';
+  return 'gray';
 }
 
 export function AgentList() {
@@ -63,77 +72,45 @@ export function AgentList() {
   }
 
   if (loading) return <CardSkeleton />;
-  if (error) return <div className="text-center py-8 text-red-500">{error}</div>;
+  if (error) return <div className="card p-4 text-sm text-red-600">{error}</div>;
+
+  if (agents.length === 0) {
+    return (
+      <EmptyState
+        icon={<AgentsIcon />}
+        title="No agents yet"
+        description="Create your first agent to start answering questions across chat, voice, and phone."
+        actionLabel="Create Agent"
+        actionHref="/agents/new"
+      />
+    );
+  }
 
   return (
-    <div className="bg-white shadow rounded-lg">
-      <div className="px-4 py-5 sm:px-6 flex justify-between items-center">
-        <h3 className="text-lg leading-6 font-medium text-gray-900">Agents</h3>
-        <a
-          href="/agents/new"
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
-        >
-          Create Agent
-        </a>
-      </div>
-      <div className="border-t border-gray-200">
-        {agents.length === 0 ? (
-          <div className="px-4 py-8 text-center text-gray-500">
-            No agents yet. Create your first agent to get started.
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {agents.map((agent) => (
+        <div key={agent.id} className="card flex flex-col p-5">
+          <div className="flex items-start justify-between gap-3">
+            <Link href={`/agents/${agent.id}`} className="min-w-0">
+              <h3 className="truncate font-semibold text-slate-900 hover:text-indigo-600">{agent.name}</h3>
+            </Link>
+            <Badge tone={statusTone(agent.status)}>{agent.status}</Badge>
           </div>
-        ) : (
-          <ul className="divide-y divide-gray-200">
-            {agents.map((agent) => (
-              <li key={agent.id} className="px-4 py-4 sm:px-6 hover:bg-gray-50">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-indigo-600 truncate">{agent.name}</p>
-                    <p className="text-sm text-gray-500 truncate">{agent.description}</p>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      agent.status === 'published' ? 'bg-green-100 text-green-800' :
-                      agent.status === 'draft' ? 'bg-yellow-100 text-yellow-800' :
-                      agent.status === 'archived' ? 'bg-gray-100 text-gray-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {agent.status}
-                    </span>
-                    {agent.status !== 'archived' && (
-                      <button
-                        onClick={() => handlePublish(agent.id)}
-                        className="text-indigo-600 hover:text-indigo-900 text-sm font-medium"
-                      >
-                        Publish
-                      </button>
-                    )}
-                    {agent.status === 'published' && (
-                      <button
-                        onClick={() => handleArchive(agent.id)}
-                        className="text-blue-600 hover:text-blue-900 text-sm font-medium"
-                      >
-                        Archive
-                      </button>
-                    )}
-                    <a
-                      href={`/agents/${agent.id}`}
-                      className="text-gray-600 hover:text-gray-900 text-sm font-medium"
-                    >
-                      Edit
-                    </a>
-                    <button
-                      onClick={() => handleDelete(agent.id)}
-                      className="text-red-600 hover:text-red-900 text-sm font-medium"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+          <p className="mt-1 line-clamp-2 flex-1 text-sm text-slate-500">
+            {agent.description || 'No description'}
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+            <Link href={`/agents/${agent.id}`} className="btn-secondary btn-sm">Edit</Link>
+            {agent.status !== 'published' && agent.status !== 'archived' && (
+              <button onClick={() => handlePublish(agent.id)} className="btn-ghost btn-sm text-indigo-600 hover:bg-indigo-50">Publish</button>
+            )}
+            {agent.status === 'published' && (
+              <button onClick={() => handleArchive(agent.id)} className="btn-ghost btn-sm">Archive</button>
+            )}
+            <button onClick={() => handleDelete(agent.id)} className="btn-ghost btn-sm ml-auto text-red-600 hover:bg-red-50">Delete</button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

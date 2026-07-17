@@ -25,6 +25,7 @@ export default function NewWidgetPage() {
   const [name, setName] = useState('');
   const [agentId, setAgentId] = useState('');
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [domains, setDomains] = useState<string[]>(['']);
   const [saving, setSaving] = useState(false);
 
   // 'chat' = text only, 'voice' = voice only, 'both' = text + voice
@@ -52,7 +53,10 @@ export default function NewWidgetPage() {
           showVisualizer,
         },
       };
-      const widget = await api.widgets.create({ name, agentId, config });
+      const cleanDomains = domains
+        .map(d => d.trim().replace(/^[a-z]+:\/\//i, '').replace(/[/?#].*$/, ''))
+        .filter(Boolean);
+      const widget = await api.widgets.create({ name, agentId, config, domains: cleanDomains });
       router.push(`/widgets/${widget.id}`);
     } catch (e: any) {
       alert(e.message);
@@ -120,6 +124,46 @@ export default function NewWidgetPage() {
           </div>
         </div>
       )}
+
+      <div className="border-t pt-6 mb-6">
+        <label className="block text-sm font-medium mb-1">Allowed Domains</label>
+        <p className="text-sm text-gray-500 mb-3">
+          The website(s) where you&apos;ll embed this widget. Only these origins can load the widget and
+          call the API. Enter the domain only — e.g. <code className="px-1 bg-gray-100 rounded">example.com</code>.
+          Use <code className="px-1 bg-gray-100 rounded">*.example.com</code> for all subdomains. You can change this later.
+        </p>
+        <div className="space-y-2">
+          {domains.map((domain, index) => (
+            <div key={index} className="flex gap-2">
+              <input
+                type="text"
+                value={domain}
+                onChange={e => {
+                  const next = [...domains];
+                  next[index] = e.target.value;
+                  setDomains(next);
+                }}
+                placeholder="example.com"
+                className="flex-1 p-3 border rounded"
+              />
+              <button
+                type="button"
+                onClick={() => setDomains(domains.length === 1 ? [''] : domains.filter((_, i) => i !== index))}
+                className="px-3 text-red-600 hover:text-red-800 text-sm"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => setDomains([...domains, ''])}
+            className="px-3 py-1 text-blue-600 hover:text-blue-800 text-sm"
+          >
+            + Add Domain
+          </button>
+        </div>
+      </div>
 
       <button onClick={handleCreate} disabled={saving || !name.trim() || !agentId}
         className="bg-blue-500 text-white px-6 py-2 rounded disabled:opacity-50">

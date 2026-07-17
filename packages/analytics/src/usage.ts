@@ -15,8 +15,10 @@ export interface UsageCost {
 }
 
 const PRICING: Record<string, { inputPerMillion: number; outputPerMillion: number }> = {
+  'llama-3.3-70b-versatile': { inputPerMillion: 0.59, outputPerMillion: 0.79 },
   'llama-3.1-70b-versatile': { inputPerMillion: 0.59, outputPerMillion: 0.79 },
   'llama-3.1-8b-instant': { inputPerMillion: 0.05, outputPerMillion: 0.08 },
+  'gemma2-9b-it': { inputPerMillion: 0.2, outputPerMillion: 0.2 },
   'mixtral-8x7b-32768': { inputPerMillion: 0.24, outputPerMillion: 0.24 },
   'gemma-7b-it': { inputPerMillion: 0.05, outputPerMillion: 0.08 },
   'gpt-4o': { inputPerMillion: 2.5, outputPerMillion: 10.0 },
@@ -212,7 +214,7 @@ export class UsageTracker {
   calculateCost(usage: { event: string; quantity: number; provider?: string; metadata?: Record<string, unknown> }): number {
     switch (usage.event) {
       case 'llm_call': {
-        const pricing = PRICING[usage.provider ?? 'llama-3.1-70b-versatile'];
+        const pricing = PRICING[usage.provider ?? 'llama-3.3-70b-versatile'];
         if (!pricing) return 0;
         const inputTokens = (usage.metadata?.inputTokens as number) ?? 0;
         const outputTokens = (usage.metadata?.outputTokens as number) ?? 0;

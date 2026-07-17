@@ -2,21 +2,17 @@
 
 import { ClerkProvider, useAuth } from '@clerk/nextjs';
 import { useEffect } from 'react';
-import { setClerkToken } from '@/lib/api';
+import { setClerkTokenGetter } from '@/lib/api';
 import { PostHogProvider } from '@/lib/posthog';
+import { AppShell } from '@/components/AppShell';
 
 function ClerkTokenSync() {
   const { getToken } = useAuth();
 
   useEffect(() => {
-    let mounted = true;
-    async function loadToken() {
-      const token = await getToken();
-      if (mounted) setClerkToken(token);
-    }
-    loadToken();
-    const interval = setInterval(loadToken, 5 * 60 * 1000);
-    return () => { mounted = false; clearInterval(interval); };
+    // Register Clerk's getToken so every API request fetches a fresh, unexpired token.
+    // Clerk caches and refreshes internally, so this is cheap.
+    setClerkTokenGetter(() => getToken());
   }, [getToken]);
 
   return null;
@@ -27,7 +23,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <ClerkProvider>
       <PostHogProvider>
         <ClerkTokenSync />
-        {children}
+        <AppShell>{children}</AppShell>
       </PostHogProvider>
     </ClerkProvider>
   );

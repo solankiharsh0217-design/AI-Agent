@@ -18,13 +18,19 @@ export default function ChatWidget({ widgetId, apiUrl }: ChatWidgetProps) {
     retryMessage,
     isTyping,
     connectionState,
+    connectionError,
     suggestedPrompts,
     greeting,
     config,
     voiceEnabled,
+    chatEnabled,
     voiceState,
     toggleRecording,
   } = useChat({ widgetId, apiUrl });
+
+  const primaryColor = config?.theme?.primaryColor || '#3B82F6';
+  // A voice-only widget: show a voice-centric UI and hide the text composer.
+  const voiceOnly = voiceEnabled && !chatEnabled;
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -94,7 +100,33 @@ export default function ChatWidget({ widgetId, apiUrl }: ChatWidgetProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-        {greeting && messages.length === 0 && (
+        {connectionError && (
+          <div className="mx-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {connectionError}
+          </div>
+        )}
+
+        {voiceOnly && messages.length === 0 && !connectionError && (
+          <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
+            <div
+              className="flex h-16 w-16 items-center justify-center rounded-full text-white"
+              style={{ backgroundColor: primaryColor }}
+            >
+              <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" />
+              </svg>
+            </div>
+            <p className="text-sm font-medium text-gray-700">
+              {greeting || 'Tap the mic and start talking'}
+            </p>
+            <p className="text-xs text-gray-400">
+              {connectionState === 'connected' ? 'Ready when you are' : connectionState === 'connecting' ? 'Connecting…' : 'Offline'}
+            </p>
+          </div>
+        )}
+
+        {greeting && !voiceOnly && messages.length === 0 && (
           <div className="text-center py-8">
             <div
               className="inline-block px-4 py-2 rounded-lg text-sm"
@@ -155,6 +187,50 @@ export default function ChatWidget({ widgetId, apiUrl }: ChatWidgetProps) {
         </div>
       )}
 
+      {voiceOnly && (
+        <div
+          className="px-4 py-5 border-t flex flex-col items-center gap-2"
+          style={{ borderTopColor: config?.theme?.secondaryColor || '#e5e7eb' }}
+        >
+          <button
+            type="button"
+            onClick={toggleRecording}
+            disabled={connectionState === 'disconnected' || connectionState === 'error' || voiceState === 'processing'}
+            aria-label={voiceState === 'recording' ? 'Stop recording and send' : 'Start voice recording'}
+            className={`flex h-16 w-16 items-center justify-center rounded-full text-white shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all ${
+              voiceState === 'recording' ? 'animate-pulse ring-4 ring-red-200' : 'hover:scale-105'
+            }`}
+            style={{ backgroundColor: voiceState === 'recording' ? '#ef4444' : primaryColor }}
+          >
+            {voiceState === 'processing' ? (
+              <svg className="w-7 h-7 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+              </svg>
+            ) : voiceState === 'recording' ? (
+              <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24">
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
+            ) : (
+              <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" />
+              </svg>
+            )}
+          </button>
+          <p className="text-xs text-gray-500">
+            {voiceState === 'recording'
+              ? 'Listening… tap to send'
+              : voiceState === 'processing'
+              ? 'Thinking…'
+              : voiceState === 'speaking'
+              ? 'Speaking… tap to interrupt'
+              : 'Tap to speak'}
+          </p>
+        </div>
+      )}
+
+      {!voiceOnly && (
       <form
         onSubmit={handleSubmit}
         className="px-4 py-3 border-t flex items-end gap-2"
@@ -219,6 +295,7 @@ export default function ChatWidget({ widgetId, apiUrl }: ChatWidgetProps) {
           </svg>
         </button>
       </form>
+      )}
     </div>
   );
 }

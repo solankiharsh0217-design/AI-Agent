@@ -1,22 +1,40 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
 
-let clerkToken: string | null = null;
-let tokenResolve: ((token: string | null) => void) | null = null;
-let tokenReady: Promise<string | null> = new Promise(resolve => { tokenResolve = resolve; });
-let tokenInitialized = false;
+// Clerk session tokens are short-lived (~60s). Instead of caching a token, we hold a
+// getter (Clerk's getToken) and fetch a fresh token per request — Clerk caches and
+// refreshes internally, so this is cheap and never sends an expired token. Caching a
+// single token for minutes (the previous behavior) meant most requests carried an
+// already-expired token and were rejected by the worker.
+let tokenGetter: (() => Promise<string | null>) | null = null;
+let lastKnownToken: string | null = null;
 
-export function setClerkToken(token: string | null) {
-  clerkToken = token;
-  if (!tokenInitialized) {
-    tokenInitialized = true;
-    tokenResolve?.(token);
-  }
+let markAuthReady: () => void;
+const authReady = new Promise<void>((resolve) => { markAuthReady = resolve; });
+
+export function setClerkTokenGetter(getter: () => Promise<string | null>) {
+  tokenGetter = getter;
+  markAuthReady();
 }
 
-async function waitForToken(): Promise<string | null> {
-  if (tokenInitialized) return clerkToken;
-  await tokenReady;
-  return clerkToken;
+// Backwards-compatible: pages call this after getToken(). It seeds a last-known token
+// and marks auth ready — used as a fallback when no getter is registered yet.
+export function setClerkToken(token: string | null) {
+  lastKnownToken = token;
+  markAuthReady();
+}
+
+async function getAuthToken(): Promise<string | null> {
+  await authReady;
+  if (tokenGetter) {
+    try {
+      const fresh = await tokenGetter();
+      if (fresh) lastKnownToken = fresh;
+      return fresh ?? lastKnownToken;
+    } catch {
+      return lastKnownToken;
+    }
+  }
+  return lastKnownToken;
 }
 
 interface RequestOptions {
@@ -28,7 +46,7 @@ interface RequestOptions {
 async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, headers = {} } = options;
 
-  const token = await waitForToken();
+  const token = await getAuthToken();
   const response = await fetch(`${API_BASE_URL}/api/v1${endpoint}`, {
     method,
     headers: {
@@ -68,8 +86,9 @@ export const api = {
       formData.append('file', file);
 
       const headers: Record<string, string> = {};
-      if (clerkToken) {
-        headers['Authorization'] = `Bearer ${clerkToken}`;
+      const uploadToken = await getAuthToken();
+      if (uploadToken) {
+        headers['Authorization'] = `Bearer ${uploadToken}`;
       }
 
       const response = await fetch(`${API_BASE_URL}/api/v1/knowledge/${kbId}/documents`, {

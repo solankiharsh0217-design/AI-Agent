@@ -10,6 +10,13 @@ export async function requestIdMiddleware(c: Context, next: Next) {
 }
 
 export async function corsMiddleware(c: Context, next: Next) {
+  // Public widget routes manage their own per-widget CORS (a dynamic, per-widget
+  // allow-list). Skip them here so this fixed allow-list doesn't 403 their preflight.
+  if (c.req.path.startsWith('/api/widgets')) {
+    await next();
+    return;
+  }
+
   const allowedOrigins = (c.env as Env)?.ALLOWED_ORIGINS?.split(',').map(s => s.trim()).filter(Boolean) ?? [];
   const origin = c.req.header('Origin') ?? '';
 
@@ -115,6 +122,36 @@ function base64UrlToUint8Array(str: string): Uint8Array {
   return Uint8Array.from(decoded, c => c.charCodeAt(0));
 }
 
+/**
+ * Derive the expected token issuer from a Clerk publishable key. Clerk keys are
+ * `pk_test_<b64>` / `pk_live_<b64>` where the base64 payload decodes to the instance's
+ * Frontend API host with a trailing `$` (e.g. `foo-bar-12.clerk.accounts.dev$`). The
+ * issuer of Clerk session tokens is `https://<that host>`. Pinning to this value stops
+ * a forged token from pointing JWKS resolution at an attacker-controlled domain.
+ */
+function expectedIssuerFromPublishableKey(pk: string | undefined): string | null {
+  if (!pk) return null;
+  const m = pk.match(/^pk_(?:test|live)_(.+)$/);
+  if (!m) return null;
+  try {
+    const host = base64UrlDecode(m[1]).replace(/\$+$/, '').trim();
+    if (!host || !/^[a-zA-Z0-9.\-]+$/.test(host)) return null;
+    return `https://${host}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Reject issuers that aren't a Clerk-owned host (used only when no pinned issuer is available). */
+function isClerkOwnedIssuer(issuer: string): boolean {
+  try {
+    const host = new URL(issuer).host;
+    return host.endsWith('.clerk.accounts.dev') || host.endsWith('.clerk.dev') || host.endsWith('.clerk.com');
+  } catch {
+    return false;
+  }
+}
+
 const JWKS_CACHE_KEY = 'clerk:jwks:cache';
 const JWKS_CACHE_TTL = 3600; // 1 hour
 
@@ -139,6 +176,20 @@ async function verifyClerkToken(token: string, clerkPublishableKey: string, env:
 
     if (!payload.iss) return { payload: null, error: 'No issuer in token' };
 
+    // Pin the issuer. Without this, JWKS would be fetched from whatever `iss` the token
+    // claims, letting an attacker sign a token with their own key hosted at their own
+    // domain and pass verification. Prefer the issuer derived from the publishable key;
+    // if that isn't available, at least require a Clerk-owned host.
+    const issuer = payload.iss as string;
+    const expectedIssuer = expectedIssuerFromPublishableKey(clerkPublishableKey);
+    if (expectedIssuer) {
+      if (issuer !== expectedIssuer) {
+        return { payload: null, error: `Issuer mismatch: got=${issuer} expected=${expectedIssuer}` };
+      }
+    } else if (!isClerkOwnedIssuer(issuer)) {
+      return { payload: null, error: `Untrusted issuer: ${issuer}` };
+    }
+
     // Validate audience if present
     if (payload.aud) {
       const audience = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
@@ -155,8 +206,7 @@ async function verifyClerkToken(token: string, clerkPublishableKey: string, env:
       }
     }
 
-    // Fetch Clerk JWKS from the issuer — signature verification proves authenticity
-    const issuer = payload.iss as string;
+    // Fetch Clerk JWKS from the (now-pinned) issuer — signature verification proves authenticity
     let jwks: { keys: Array<{ kid: string; kty: string; n: string; e: string }> } | null = null;
 
     if ((env as any).KV) {

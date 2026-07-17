@@ -166,6 +166,12 @@ export default function WidgetDetailPage({ params }: { params: { id: string } })
 
           <div className="border-t pt-6">
             <h2 className="text-lg font-semibold mb-4">Allowed Domains</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Add the website(s) where you&apos;ll embed this widget. Only these origins are allowed to load
+              the widget and call the API (CORS). Enter the domain only — e.g. <code className="px-1 bg-gray-100 rounded">example.com</code> or
+              <code className="px-1 bg-gray-100 rounded">app.example.com</code>. Use <code className="px-1 bg-gray-100 rounded">*.example.com</code> to allow all
+              subdomains. Leave empty to allow the widget only via a signed token.
+            </p>
             <div className="space-y-2">
               {formData.domains.map((domain, index) => (
                 <div key={index} className="flex gap-2">

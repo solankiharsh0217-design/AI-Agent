@@ -67,7 +67,7 @@
   var iframe = document.createElement('iframe');
   iframe.id = 'ai-agent-widget-iframe';
   iframe.style.cssText = 'display:none;position:fixed;bottom:90px;right:20px;width:400px;height:600px;border:none;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.15);z-index:999998;transition:opacity 0.2s;';
-  iframe.allow = 'clipboard-write';
+  iframe.allow = 'microphone; clipboard-write';
   iframe.title = 'AI Agent Chat';
 
   container.appendChild(iframe);

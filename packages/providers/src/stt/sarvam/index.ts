@@ -21,7 +21,11 @@ export class SarvamSTTProvider implements STTProvider {
 
   async transcribe(request: STTRequest): Promise<STTResult> {
     const formData = new FormData();
-    const blob = new Blob([request.audio], { type: request.mimeType });
+    let mimeType = request.mimeType;
+    if (mimeType.includes(';')) {
+      mimeType = mimeType.split(';')[0].trim();
+    }
+    const blob = new Blob([request.audio], { type: mimeType });
     formData.append('file', blob, 'audio.webm');
     if (request.language) formData.append('language_code', request.language);
 

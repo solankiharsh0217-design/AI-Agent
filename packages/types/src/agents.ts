@@ -2,8 +2,11 @@ import { z } from 'zod';
 import { UserRole, VoiceConfig, LanguageCode } from './core';
 
 export const AgentModel = z.enum([
-  'llama-3.1-70b-versatile',
+  'llama-3.3-70b-versatile',
   'llama-3.1-8b-instant',
+  'gemma2-9b-it',
+  // Legacy Groq ids kept for backward-compat with stored configs (decommissioned upstream)
+  'llama-3.1-70b-versatile',
   'mixtral-8x7b-32768',
   'gemma-7b-it',
   'gpt-4o',
@@ -64,7 +67,7 @@ export const ToolConfig = z.object({
 export type ToolConfig = z.infer<typeof ToolConfig>;
 
 export const AgentConfig = z.object({
-  model: AgentModel.default('llama-3.1-70b-versatile'),
+  model: AgentModel.default('llama-3.3-70b-versatile'),
   provider: AgentProvider.default('groq'),
   temperature: z.number().min(0).max(2).default(0.7),
   maxTokens: z.number().int().positive().max(32768).default(4096),

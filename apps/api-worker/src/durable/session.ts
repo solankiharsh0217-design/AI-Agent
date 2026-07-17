@@ -84,7 +84,6 @@ export class SessionDurableObject {
 
     this.ctx.getWebSockets().forEach((ws) => {
       this.websockets.add(ws);
-      this.ctx.acceptWebSocket(ws);
     });
   }
 
@@ -129,10 +128,15 @@ export class SessionDurableObject {
       return this.json({ success: true });
     }
 
-    // For all non-init requests, verify tenantId matches
+    // For all non-init requests, verify tenantId matches — or adopt it on first contact.
+    // HTTP-only channels (e.g. the widget voice turn) never open a WebSocket or hit /init,
+    // so this is where their DO first learns which tenant it belongs to.
     const storedTenantId = await this.ctx.storage.get<string>('tenantId');
     if (storedTenantId && requestTenantId !== storedTenantId) {
       return this.json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied to this session' } }, 403);
+    }
+    if (!storedTenantId) {
+      await this.ctx.storage.put('tenantId', requestTenantId);
     }
 
     switch (route) {
@@ -484,7 +488,7 @@ export class SessionDurableObject {
     };
 
     const runtimeConfig = {
-      model: agentConfig.model || 'llama-3.1-70b-versatile',
+      model: agentConfig.model || 'llama-3.3-70b-versatile',
       temperature: agentConfig.temperature ?? 0.7,
       maxTokens: agentConfig.maxTokens ?? 2048,
       systemPrompt: agentConfig.systemPrompt || '',

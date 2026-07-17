@@ -133,12 +133,12 @@ app.route('/api/v1', v1);
 // Public widget endpoints (no dashboard auth required)
 const widgetsPublic = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
-function validateWidgetDomain(allowedDomains: unknown, origin: string | undefined, widgetToken?: string): boolean {
-  // Allow if valid widget token is provided (for iframe contexts where Origin may be null)
-  if (widgetToken) return true;
-  
+// Is the request Origin allowed by this widget's configured domain allow-list?
+// Entries may be bare hosts ("example.com"), full origins ("https://example.com"),
+// URLs with a path, "*" (any), or "*.example.com" (any subdomain). Matching is by host.
+function widgetOriginAllowed(allowedDomains: unknown, origin: string | undefined): boolean {
   if (!origin) return false;
-  
+
   let domainsList: string[] = [];
   if (Array.isArray(allowedDomains)) {
     domainsList = allowedDomains;
@@ -154,17 +154,18 @@ function validateWidgetDomain(allowedDomains: unknown, origin: string | undefine
   if (domainsList.length === 0) return false;
   if (domainsList.includes('*')) return true;
 
-  let parsedOrigin: URL;
+  let originHost: string;
   try {
-    parsedOrigin = new URL(origin);
+    originHost = new URL(origin).hostname.toLowerCase();
   } catch {
     return false;
   }
 
-  const originHost = parsedOrigin.hostname;
-
   return domainsList.some(d => {
-    const allowed = d.trim().toLowerCase();
+    // Normalize an entry to a bare host: strip scheme and any path/query.
+    const allowed = d.trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/[/?#].*$/, '');
+    if (!allowed) return false;
+    if (allowed === '*') return true;
     if (allowed === originHost) return true;
     if (allowed.startsWith('*.')) {
       const suffix = allowed.slice(2);
@@ -172,6 +173,12 @@ function validateWidgetDomain(allowedDomains: unknown, origin: string | undefine
     }
     return false;
   });
+}
+
+function validateWidgetDomain(allowedDomains: unknown, origin: string | undefined, widgetToken?: string): boolean {
+  // Allow if a widget token is provided (for iframe contexts where Origin may be null)
+  if (widgetToken) return true;
+  return widgetOriginAllowed(allowedDomains, origin);
 }
 
 // Encode binary audio to base64 in chunks (avoids call-stack overflow on large buffers)
@@ -183,6 +190,47 @@ function uint8ToBase64(bytes: Uint8Array): string {
   }
   return btoa(binary);
 }
+
+// Per-widget dynamic CORS. Unlike the dashboard API (fixed ALLOWED_ORIGINS), a widget
+// is embedded on arbitrary customer sites, so we reflect the request Origin only when it
+// matches that widget's own configured `domains` allow-list. Also answers preflight.
+widgetsPublic.use('*', async (c, next) => {
+  const origin = c.req.header('Origin');
+  if (origin) {
+    // Check if the origin is one of our system allowed origins (e.g., widget host, dashboard host)
+    const systemAllowed = c.env.ALLOWED_ORIGINS?.split(',').map((s: string) => s.trim()).filter(Boolean) ?? [];
+    if (systemAllowed.includes(origin)) {
+      c.header('Access-Control-Allow-Origin', origin);
+      c.header('Vary', 'Origin');
+      c.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-Id, X-Parent-Origin');
+      c.header('Access-Control-Max-Age', '86400');
+    } else {
+      const match = c.req.path.match(/^\/api\/widgets\/([^/]+)/);
+      const id = match?.[1];
+      if (id) {
+        try {
+          const { db } = getOrCreateContext(c.env);
+          const { WidgetRepository } = await import('@ai-agent/database');
+          const widget = await new WidgetRepository(db as any).findByIdUnscoped(id);
+          if (widget && widgetOriginAllowed(widget.domains, origin)) {
+            c.header('Access-Control-Allow-Origin', origin);
+            c.header('Vary', 'Origin');
+            c.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+            c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-Id, X-Parent-Origin');
+            c.header('Access-Control-Max-Age', '86400');
+          }
+        } catch {
+          // On lookup failure, emit no CORS headers — the browser will block, which is safe.
+        }
+      }
+    }
+  }
+  if (c.req.method === 'OPTIONS') {
+    return c.body(null, 204);
+  }
+  await next();
+});
 
 // Rate limit public widget endpoints — 30 req/min per IP
 widgetsPublic.use('*', rateLimitMiddleware({ windowMs: 60_000, maxRequests: 30 }));
@@ -205,7 +253,7 @@ widgetsPublic.get('/:id', async (c) => {
     return c.json({ success: false, error: { code: 'WIDGET_NOT_FOUND', message: 'Widget not found' } }, 404);
   }
 
-  const origin = c.req.header('Origin') || c.req.header('Referer');
+  const origin = c.req.header('X-Parent-Origin') || c.req.query('parentUrl') || c.req.header('Origin') || c.req.header('Referer');
   const widgetToken = c.req.query('token') || c.req.header('Authorization')?.slice(7);
   if (!validateWidgetDomain(widget.domains, origin, widgetToken)) {
     return c.json({ success: false, error: { code: 'UNAUTHORIZED_DOMAIN', message: 'Domain not whitelisted' } }, 403);
@@ -227,7 +275,7 @@ widgetsPublic.post('/:id/sessions', async (c) => {
     return c.json({ success: false, error: { code: 'WIDGET_NOT_FOUND', message: 'Widget not found' } }, 404);
   }
 
-  const origin = c.req.header('Origin') || c.req.header('Referer');
+  const origin = c.req.header('X-Parent-Origin') || c.req.query('parentUrl') || c.req.header('Origin') || c.req.header('Referer');
   const widgetToken = c.req.query('token') || c.req.header('Authorization')?.slice(7);
   if (!validateWidgetDomain(widget.domains, origin, widgetToken)) {
     return c.json({ success: false, error: { code: 'UNAUTHORIZED_DOMAIN', message: 'Domain not whitelisted' } }, 403);
@@ -277,7 +325,7 @@ widgetsPublic.post('/:id/messages', async (c) => {
     return c.json({ success: false, error: { code: 'WIDGET_NOT_FOUND', message: 'Widget not found' } }, 404);
   }
 
-  const origin = c.req.header('Origin') || c.req.header('Referer');
+  const origin = c.req.header('X-Parent-Origin') || c.req.query('parentUrl') || c.req.header('Origin') || c.req.header('Referer');
   const widgetToken = c.req.query('token') || c.req.header('Authorization')?.slice(7);
   if (!validateWidgetDomain(widget.domains, origin, widgetToken)) {
     return c.json({ success: false, error: { code: 'UNAUTHORIZED_DOMAIN', message: 'Domain not whitelisted' } }, 403);
@@ -308,7 +356,7 @@ widgetsPublic.post('/:id/messages', async (c) => {
     'X-Internal-Auth': c.env.INTERNAL_API_SECRET,
     'X-Tenant-Id': widget.tenantId,
   };
-  const doRes = await stub.fetch(new Request(`${c.req.url.split('/api/widgets')[0]}/messages`, {
+  const doRes = await stub.fetch(new Request(`${c.req.url.split('/api/widgets')[0]}/messages?sessionId=${encodeURIComponent(sessionId)}`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ content, widgetId: c.req.param('id') }),
@@ -331,7 +379,7 @@ widgetsPublic.post('/:id/voice', async (c) => {
     return c.json({ success: false, error: { code: 'WIDGET_NOT_FOUND', message: 'Widget not found' } }, 404);
   }
 
-  const origin = c.req.header('Origin') || c.req.header('Referer');
+  const origin = c.req.header('X-Parent-Origin') || c.req.query('parentUrl') || c.req.header('Origin') || c.req.header('Referer');
   const widgetToken = c.req.query('token') || c.req.header('Authorization')?.slice(7);
   if (!validateWidgetDomain(widget.domains, origin, widgetToken)) {
     return c.json({ success: false, error: { code: 'UNAUTHORIZED_DOMAIN', message: 'Domain not whitelisted' } }, 403);
@@ -380,7 +428,8 @@ widgetsPublic.post('/:id/voice', async (c) => {
     doId = c.env.SESSION_DO.idFromName(sessionId);
   }
   const stub = c.env.SESSION_DO.get(doId);
-  const doRes = await stub.fetch(new Request(`${c.req.url.split('/api/widgets')[0]}/messages`, {
+  const doBase = c.req.url.split('/api/widgets')[0];
+  const doRes = await stub.fetch(new Request(`${doBase}/messages?sessionId=${encodeURIComponent(sessionId)}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -412,8 +461,9 @@ widgetsPublic.post('/:id/voice', async (c) => {
     });
     audioBase64 = uint8ToBase64(ttsResult.audio);
     audioFormat = ttsResult.format.encoding || 'wav';
-  } catch {
+  } catch (err) {
     // TTS failed — client still shows the text reply
+    console.error('[voice] TTS synthesis failed:', (err as Error).message);
   }
 
   return c.json({

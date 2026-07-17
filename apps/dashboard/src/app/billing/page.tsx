@@ -3,8 +3,8 @@
 import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { Navbar } from '@/components/Navbar';
 import { api } from '@/lib/api';
+import { PageContainer, PageHeader } from '@/components/ui';
 
 // Extend Window interface for Razorpay
 declare global {
@@ -76,7 +76,7 @@ const STATUS_COLORS: Record<string, string> = {
   paid: 'bg-green-100 text-green-800',
   open: 'bg-yellow-100 text-yellow-800',
   draft: 'bg-gray-100 text-gray-800',
-  void: 'bg-gray-100 text-gray-500',
+  void: 'bg-gray-100 text-slate-500',
   uncollectible: 'bg-red-100 text-red-800',
 };
 
@@ -272,22 +272,16 @@ export default function BillingPage() {
   const currentPlanName = subscription?.plan?.slug ?? 'free';
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Navbar />
-      <div className="py-10">
-        <header>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h1 className="text-3xl font-bold text-gray-900">Billing</h1>
-          </div>
-        </header>
-        <main>
-          <div className="max-w-7xl mx-auto sm:px-6 lg:px-8">
-            <div className="px-4 py-8 sm:px-0">
+    <PageContainer>
+      <PageHeader title="Billing" description="Manage your plan, usage, and invoices." />
+      <div>
+        <div>
+          <div>
 
               {loading && (
                 <div className="text-center py-12">
                   <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-                  <p className="mt-2 text-sm text-gray-500">Loading billing data...</p>
+                  <p className="mt-2 text-sm text-slate-500">Loading billing data...</p>
                 </div>
               )}
 
@@ -306,10 +300,10 @@ export default function BillingPage() {
               {!loading && !error && (
                 <>
                   {/* Current Plan */}
-                  <div className="bg-white shadow rounded-lg p-6 mb-6">
+                  <div className="card p-6 mb-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h2 className="text-lg font-medium text-gray-900">Current Plan</h2>
+                        <h2 className="text-lg font-medium text-slate-900">Current Plan</h2>
                         <div className="mt-2 flex items-center gap-3">
                           <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${PLAN_COLORS[currentPlanName] ?? 'bg-gray-100 text-gray-800'}`}>
                             {subscription?.plan?.name ?? 'Free'}
@@ -319,7 +313,7 @@ export default function BillingPage() {
                           </span>
                         </div>
                         {subscription?.currentPeriodEnd && (
-                          <p className="mt-1 text-sm text-gray-500">
+                          <p className="mt-1 text-sm text-slate-500">
                             Renews on {formatDate(subscription.currentPeriodEnd)}
                           </p>
                         )}
@@ -339,24 +333,24 @@ export default function BillingPage() {
                   </div>
 
                   {/* Usage Summary */}
-                  <div className="bg-white shadow rounded-lg p-6 mb-6">
-                    <h2 className="text-lg font-medium text-gray-900 mb-4">Usage This Period</h2>
+                  <div className="card p-6 mb-6">
+                    <h2 className="text-lg font-medium text-slate-900 mb-4">Usage This Period</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {usage.map((item) => {
                         const meta = USAGE_METRICS[item.metric];
                         if (!meta) return null;
                         const pct = getUsagePercentage(item);
                         return (
-                          <div key={item.metric} className="border border-gray-200 rounded-lg p-4">
+                          <div key={item.metric} className="border border-slate-200 rounded-lg p-4">
                             <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-medium text-gray-700">{meta.label}</span>
-                              <span className="text-xs text-gray-500">{item.unit}</span>
+                              <span className="text-sm font-medium text-slate-700">{meta.label}</span>
+                              <span className="text-xs text-slate-500">{item.unit}</span>
                             </div>
                             <div className="flex items-baseline gap-1 mb-2">
-                              <span className="text-2xl font-semibold text-gray-900">
+                              <span className="text-2xl font-semibold text-slate-900">
                                 {item.quantity.toLocaleString()}
                               </span>
-                              <span className="text-sm text-gray-500">
+                              <span className="text-sm text-slate-500">
                                 / {item.limit.toLocaleString()}
                               </span>
                             </div>
@@ -366,7 +360,7 @@ export default function BillingPage() {
                                 style={{ width: `${pct}%` }}
                               />
                             </div>
-                            <p className="mt-1 text-xs text-gray-500">{pct.toFixed(1)}% used</p>
+                            <p className="mt-1 text-xs text-slate-500">{pct.toFixed(1)}% used</p>
                           </div>
                         );
                       })}
@@ -375,25 +369,25 @@ export default function BillingPage() {
 
                   {/* Plan Cards */}
                   {plans.length > 0 && (
-                    <div className="bg-white shadow rounded-lg p-6 mb-6">
-                      <h2 className="text-lg font-medium text-gray-900 mb-4">Available Plans</h2>
+                    <div className="card p-6 mb-6">
+                      <h2 className="text-lg font-medium text-slate-900 mb-4">Available Plans</h2>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         {plans.map((plan) => {
                           const isCurrent = plan.slug === currentPlanName;
                           return (
                             <div
                               key={plan.id}
-                              className={`border rounded-lg p-4 ${isCurrent ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-gray-200'}`}
+                              className={`border rounded-lg p-4 ${isCurrent ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200'}`}
                             >
-                              <h3 className="text-base font-semibold text-gray-900">{plan.name}</h3>
-                              <p className="mt-1 text-sm text-gray-500">{plan.description}</p>
-                              <p className="mt-3 text-2xl font-bold text-gray-900">
+                              <h3 className="text-base font-semibold text-slate-900">{plan.name}</h3>
+                              <p className="mt-1 text-sm text-slate-500">{plan.description}</p>
+                              <p className="mt-3 text-2xl font-bold text-slate-900">
                                 {plan.pricing.basePrice === 0 ? 'Free' : `$${plan.pricing.basePrice}`}
                                 {plan.pricing.basePrice > 0 && (
-                                  <span className="text-sm font-normal text-gray-500">/{plan.pricing.interval}</span>
+                                  <span className="text-sm font-normal text-slate-500">/{plan.pricing.interval}</span>
                                 )}
                               </p>
-                              <ul className="mt-4 space-y-2 text-sm text-gray-600">
+                              <ul className="mt-4 space-y-2 text-sm text-slate-600">
                                 <li>{plan.limits.maxAgents} agents</li>
                                 <li>{plan.limits.maxMonthlyMessages.toLocaleString()} messages/mo</li>
                                 <li>{plan.limits.maxMonthlyVoiceMinutes} voice min/mo</li>
@@ -418,30 +412,30 @@ export default function BillingPage() {
                   )}
 
                   {/* Invoice History */}
-                  <div className="bg-white shadow rounded-lg overflow-hidden">
-                    <div className="px-6 py-4 border-b border-gray-200">
-                      <h2 className="text-lg font-medium text-gray-900">Invoice History</h2>
+                  <div className="card overflow-hidden">
+                    <div className="px-6 py-4 border-b border-slate-200">
+                      <h2 className="text-lg font-medium text-slate-900">Invoice History</h2>
                     </div>
                     {invoices.length === 0 ? (
-                      <div className="px-6 py-12 text-center text-sm text-gray-500">
+                      <div className="px-6 py-12 text-center text-sm text-slate-500">
                         No invoices yet.
                       </div>
                     ) : (
                       <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200">
-                          <thead className="bg-gray-50">
+                        <table className="min-w-full divide-y divide-slate-200">
+                          <thead className="bg-slate-50">
                             <tr>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice</th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Period</th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paid</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Invoice</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Period</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
+                              <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Amount</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Paid</th>
                             </tr>
                           </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
+                          <tbody className="bg-white divide-y divide-slate-200">
                             {invoices.map((invoice) => (
                               <tr key={invoice.id}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">
                                   {invoice.hostedInvoiceUrl ? (
                                     <a href={invoice.hostedInvoiceUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500">
                                       {invoice.number}
@@ -450,7 +444,7 @@ export default function BillingPage() {
                                     invoice.number
                                   )}
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
                                   {formatDate(invoice.periodStart)} – {formatDate(invoice.periodEnd)}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
@@ -458,10 +452,10 @@ export default function BillingPage() {
                                     {invoice.status}
                                   </span>
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-slate-900">
                                   {formatCurrency(invoice.amountDue, invoice.currency)}
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
                                   {invoice.paidAt ? formatDate(invoice.paidAt) : '—'}
                                 </td>
                               </tr>
@@ -474,10 +468,9 @@ export default function BillingPage() {
                 </>
               )}
 
-            </div>
           </div>
-        </main>
+        </div>
       </div>
-    </div>
+    </PageContainer>
   );
 }

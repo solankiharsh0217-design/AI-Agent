@@ -1,7 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api';
+import { Badge, EmptyState, LoadingState } from '@/components/ui';
+import { ConversationsIcon } from '@/components/icons';
 
 interface Conversation {
   id: string;
@@ -9,16 +12,6 @@ interface Conversation {
   channel: string;
   status: string;
   createdAt: string;
-}
-
-interface PaginatedResponse<T> {
-  data: T[];
-  meta: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-  };
 }
 
 export function ConversationsList() {
@@ -32,14 +25,12 @@ export function ConversationsList() {
   useEffect(() => {
     let cancelled = false;
     async function loadConversations() {
+      setLoading(true);
       try {
         const response = await api.conversations.list({ page, limit: 20 });
         if (!cancelled) {
-          if (page === 1) {
-            setConversations(response.data);
-          } else {
-            setConversations((prev) => [...prev, ...response.data]);
-          }
+          // Replace (not append) so Previous/Next paginate correctly.
+          setConversations(response.data);
           setTotalPages(response.meta.totalPages);
           setTotal(response.meta.total);
         }
@@ -63,77 +54,67 @@ export function ConversationsList() {
     }
   }
 
-  if (loading && conversations.length === 0) return <div className="text-center py-8">Loading...</div>;
-  if (error) return <div className="text-center py-8 text-red-500">{error}</div>;
+  if (loading && conversations.length === 0) return <LoadingState />;
+  if (error) return <div className="card p-4 text-sm text-red-600">{error}</div>;
+  if (conversations.length === 0) {
+    return (
+      <EmptyState
+        icon={<ConversationsIcon />}
+        title="No conversations yet"
+        description="Once people chat or call your agents, their conversations will appear here."
+      />
+    );
+  }
 
   return (
-    <div className="bg-white shadow rounded-lg">
-      <div className="px-4 py-5 sm:px-6">
-        <h3 className="text-lg leading-6 font-medium text-gray-900">Conversations ({total})</h3>
+    <div className="card overflow-hidden">
+      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+        <span className="text-sm font-medium text-slate-500">{total} total</span>
       </div>
-      <div className="border-t border-gray-200">
-        {conversations.length === 0 ? (
-          <div className="px-4 py-8 text-center text-gray-500">No conversations yet.</div>
-        ) : (
-          <ul className="divide-y divide-gray-200">
-            {conversations.map((conversation) => (
-              <li key={conversation.id} className="px-4 py-4 sm:px-6 hover:bg-gray-50">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-indigo-600 truncate">{conversation.id}</p>
-                    <p className="text-sm text-gray-500">
-                      Channel: {conversation.channel} | Agent: {conversation.agentId}
-                    </p>
-                    <p className="text-xs text-gray-400">{new Date(conversation.createdAt).toLocaleString()}</p>
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <thead className="bg-slate-50">
+            <tr className="text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+              <th className="px-5 py-3">Conversation</th>
+              <th className="px-5 py-3">Channel</th>
+              <th className="px-5 py-3">Status</th>
+              <th className="px-5 py-3">Started</th>
+              <th className="px-5 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {conversations.map((c) => (
+              <tr key={c.id} className="hover:bg-slate-50">
+                <td className="px-5 py-3">
+                  <Link href={`/conversations/${c.id}`} className="font-medium text-indigo-600 hover:text-indigo-800">
+                    {c.id.slice(0, 8)}…
+                  </Link>
+                </td>
+                <td className="px-5 py-3 capitalize text-slate-600">{c.channel}</td>
+                <td className="px-5 py-3">
+                  <Badge tone={c.status === 'active' ? 'green' : c.status === 'ended' ? 'gray' : 'amber'}>{c.status}</Badge>
+                </td>
+                <td className="px-5 py-3 text-slate-500">{new Date(c.createdAt).toLocaleString()}</td>
+                <td className="px-5 py-3">
+                  <div className="flex items-center justify-end gap-2">
+                    <Link href={`/conversations/${c.id}`} className="btn-ghost btn-sm text-indigo-600 hover:bg-indigo-50">View</Link>
+                    <button onClick={() => handleDelete(c.id)} className="btn-ghost btn-sm text-red-600 hover:bg-red-50">Delete</button>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      conversation.status === 'active' ? 'bg-green-100 text-green-800' :
-                      conversation.status === 'ended' ? 'bg-gray-100 text-gray-800' :
-                      'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {conversation.status}
-                    </span>
-                    <a
-                      href={`/conversations/${conversation.id}`}
-                      className="text-indigo-600 hover:text-indigo-900 text-sm font-medium"
-                    >
-                      View
-                    </a>
-                    <button
-                      onClick={() => handleDelete(conversation.id)}
-                      className="text-red-600 hover:text-red-900 text-sm font-medium"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </li>
+                </td>
+              </tr>
             ))}
-          </ul>
-        )}
-        {(page < totalPages || page > 1) && conversations.length > 0 && (
-          <div className="px-4 py-3 border-t border-gray-200 flex justify-between items-center">
-            <span className="text-sm text-gray-500">Page {page} of {totalPages}</span>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPage(page - 1)}
-                disabled={page <= 1}
-                className="px-3 py-1 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Previous
-              </button>
-              <button
-                onClick={() => setPage(page + 1)}
-                disabled={page >= totalPages}
-                className="px-3 py-1 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
+          </tbody>
+        </table>
       </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between border-t border-slate-200 px-5 py-3">
+          <span className="text-sm text-slate-500">Page {page} of {totalPages}</span>
+          <div className="flex gap-2">
+            <button onClick={() => setPage(page - 1)} disabled={page <= 1 || loading} className="btn-secondary btn-sm">Previous</button>
+            <button onClick={() => setPage(page + 1)} disabled={page >= totalPages || loading} className="btn-secondary btn-sm">Next</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
