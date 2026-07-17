@@ -3,93 +3,64 @@ import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { api, setClerkToken } from '@/lib/api';
+import { PageContainer, PageHeader, FormError } from '@/components/ui';
+import { AgentConfigForm, defaultAgentFormConfig, formToConfig, AgentFormConfig } from '@/components/AgentConfigForm';
 
 export default function NewAgentPage() {
   const { getToken } = useAuth();
   const router = useRouter();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [model, setModel] = useState('llama-3.1-70b-versatile');
-  const [temperature, setTemperature] = useState(0.7);
-  const [maxTokens, setMaxTokens] = useState(2048);
-  const [systemPrompt, setSystemPrompt] = useState('');
+  const [form, setForm] = useState<AgentFormConfig>(defaultAgentFormConfig());
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { getToken().then(t => setClerkToken(t)); }, []);
+  useEffect(() => { getToken().then((t) => setClerkToken(t)); }, []);
 
   async function handleCreate() {
-    if (!name.trim()) return;
+    if (!name.trim()) {
+      setError('Name is required.');
+      return;
+    }
     setSaving(true);
+    setError(null);
     try {
       const agent = await api.agents.create({
         name,
         description,
-        config: { model, temperature, maxTokens, systemPrompt },
+        config: formToConfig(form),
       });
       router.push(`/agents/${agent.id}`);
     } catch (e: any) {
-      alert(e.message);
+      setError(e?.message || 'Failed to create agent.');
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-8">
-      <h1 className="text-2xl font-bold mb-6">Create New Agent</h1>
-      
-      <div className="space-y-4">
+    <PageContainer>
+      <PageHeader title="Create Agent" description="Configure a new AI agent." />
+      <div className="card card-p space-y-6">
+        <FormError message={error} />
         <div>
-          <label className="block text-sm font-medium mb-1">Name</label>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="Agent name"
-            className="w-full p-3 border rounded" required />
+          <label className="label">Name</label>
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Agent name" />
         </div>
-        
         <div>
-          <label className="block text-sm font-medium mb-1">Description</label>
-          <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="What does this agent do?"
-            className="w-full p-3 border rounded" rows={3} />
+          <label className="label">Description</label>
+          <textarea className="textarea" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What does this agent do?" rows={3} />
         </div>
 
-        <div className="border-t pt-4">
-          <h2 className="text-lg font-semibold mb-3">Configuration</h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <label className="block text-sm font-medium mb-1">Model</label>
-              <select value={model} onChange={e => setModel(e.target.value)} className="w-full p-3 border rounded">
-                <option value="llama-3.1-70b-versatile">Llama 3.1 70B (Groq)</option>
-                <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant (Groq)</option>
-                <option value="mixtral-8x7b-32768">Mixtral 8x7B (Groq)</option>
-                <option value="gemma-7b-it">Gemma 7B (Groq)</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Temperature</label>
-              <input type="number" step="0.1" min="0" max="2"
-                value={temperature} onChange={e => setTemperature(parseFloat(e.target.value))}
-                className="w-full p-3 border rounded" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Max Tokens</label>
-              <input type="number" min="1" max="8192"
-                value={maxTokens} onChange={e => setMaxTokens(parseInt(e.target.value))}
-                className="w-full p-3 border rounded" />
-            </div>
-          </div>
+        <AgentConfigForm form={form} setForm={setForm} />
 
-          <div className="mt-4">
-            <label className="block text-sm font-medium mb-1">System Prompt</label>
-            <textarea value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)}
-              className="w-full p-3 border rounded font-mono text-sm"
-              rows={6} placeholder="You are a helpful AI assistant..." />
-          </div>
+        <div className="flex gap-3">
+          <button onClick={handleCreate} disabled={saving || !name.trim()} className="btn-primary">
+            {saving ? 'Creating…' : 'Create Agent'}
+          </button>
+          <button onClick={() => router.push('/agents')} className="btn-secondary">Cancel</button>
         </div>
       </div>
-
-      <button onClick={handleCreate} disabled={saving || !name.trim()}
-        className="mt-6 bg-blue-500 text-white px-6 py-2 rounded disabled:opacity-50">
-        {saving ? 'Creating...' : 'Create Agent'}
-      </button>
-    </div>
+    </PageContainer>
   );
 }

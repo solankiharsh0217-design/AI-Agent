@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { Context } from 'hono';
 import { AgentRepository, AuditLogRepository } from '@ai-agent/database';
 import { AuditLogger } from '@ai-agent/shared';
+import { requirePermission } from '../middleware';
 import { z } from 'zod';
 
 const createAgentSchema = z.object({
@@ -28,6 +29,8 @@ agents.get('/', async (c: Context) => {
 });
 
 agents.post('/', async (c: Context) => {
+  const denied = requirePermission(c, 'create:agent');
+  if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const userId = c.get('userId') as string | undefined;
   const db = c.get('db');
@@ -70,6 +73,8 @@ agents.get('/:id', async (c: Context) => {
 });
 
 agents.patch('/:id', async (c: Context) => {
+  const denied = requirePermission(c, 'update:agent');
+  if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const userId = c.get('userId') as string | undefined;
   const db = c.get('db');
@@ -107,6 +112,8 @@ agents.patch('/:id', async (c: Context) => {
 });
 
 agents.delete('/:id', async (c: Context) => {
+  const denied = requirePermission(c, 'delete:agent');
+  if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const userId = c.get('userId') as string | undefined;
   const db = c.get('db');
@@ -128,6 +135,8 @@ agents.delete('/:id', async (c: Context) => {
 });
 
 agents.post('/:id/publish', async (c: Context) => {
+  const denied = requirePermission(c, 'publish:agent');
+  if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const userId = c.get('userId') as string | undefined;
   const db = c.get('db');

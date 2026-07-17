@@ -6,24 +6,28 @@ import {
   HomeIcon, AgentsIcon, KnowledgeIcon, ConversationsIcon, WidgetsIcon,
   AnalyticsIcon, PhoneIcon, BillingIcon, SettingsIcon,
 } from './icons';
+import { usePermissions, Permission } from '@/hooks/usePermissions';
 
-const NAV = [
+const NAV: { href: string; label: string; Icon: typeof HomeIcon; permission?: Permission }[] = [
   { href: '/', label: 'Overview', Icon: HomeIcon },
   { href: '/agents', label: 'Agents', Icon: AgentsIcon },
   { href: '/knowledge', label: 'Knowledge', Icon: KnowledgeIcon },
   { href: '/conversations', label: 'Conversations', Icon: ConversationsIcon },
   { href: '/widgets', label: 'Widgets', Icon: WidgetsIcon },
   { href: '/analytics', label: 'Analytics', Icon: AnalyticsIcon },
-  { href: '/phone', label: 'Phone', Icon: PhoneIcon },
-  { href: '/billing', label: 'Billing', Icon: BillingIcon },
+  { href: '/phone', label: 'Phone', Icon: PhoneIcon, permission: 'manage:phone' },
+  { href: '/billing', label: 'Billing', Icon: BillingIcon, permission: 'manage:billing' },
   { href: '/settings', label: 'Settings', Icon: SettingsIcon },
 ];
 
 export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const { can } = usePermissions();
 
   const isActive = (href: string) =>
     href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(href + '/');
+
+  const items = NAV.filter((item) => !item.permission || can(item.permission));
 
   return (
     <div className="flex h-full flex-col">
@@ -32,7 +36,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         <span className="text-sm font-semibold text-slate-900">AI Agent Platform</span>
       </div>
       <nav className="flex-1 space-y-1 px-3 py-2">
-        {NAV.map(({ href, label, Icon }) => {
+        {items.map(({ href, label, Icon }) => {
           const active = isActive(href);
           return (
             <Link

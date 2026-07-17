@@ -1,6 +1,30 @@
 import { Context, Next } from 'hono';
 import { generateId } from '@ai-agent/shared';
+import { PermissionChecker } from '@ai-agent/auth';
 import type { Env } from '../context';
+
+const permissionChecker = new PermissionChecker();
+
+/**
+ * Enforce a permission for the currently-authenticated user (role lives in c.get('userRole')).
+ * Returns a Hono response (403) when denied, or null when allowed. Routes should `return`
+ * the non-null result directly.
+ */
+export function requirePermission(c: Context, permission: string): Response | null {
+  const role = (c.get('userRole') as string) || 'member';
+  try {
+    permissionChecker.requirePermission(role as any, permission as any);
+    return null;
+  } catch {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'FORBIDDEN', message: `Your role (${role}) does not have permission: ${permission}` },
+      },
+      403 as any,
+    );
+  }
+}
 
 export async function requestIdMiddleware(c: Context, next: Next) {
   const requestId = c.req.header('X-Request-Id') ?? generateId();

@@ -23,9 +23,11 @@ export default function ChatWidget({ widgetId, apiUrl }: ChatWidgetProps) {
     greeting,
     config,
     voiceEnabled,
+    voiceInputOnly,
     chatEnabled,
     voiceState,
     toggleRecording,
+    transcribeToInput,
   } = useChat({ widgetId, apiUrl });
 
   const primaryColor = config?.theme?.primaryColor || '#3B82F6';
@@ -181,8 +183,8 @@ export default function ChatWidget({ widgetId, apiUrl }: ChatWidgetProps) {
 
       {voiceEnabled && voiceState !== 'idle' && (
         <div className="px-4 pt-2 text-center text-xs text-gray-500">
-          {voiceState === 'recording' && 'Listening… tap the mic to send'}
-          {voiceState === 'processing' && 'Thinking…'}
+          {voiceState === 'recording' && (voiceInputOnly ? 'Listening… tap the mic to stop' : 'Listening… tap the mic to send')}
+          {voiceState === 'processing' && (voiceInputOnly ? 'Transcribing…' : 'Thinking…')}
           {voiceState === 'speaking' && 'Speaking… tap the mic to interrupt'}
         </div>
       )}
@@ -239,10 +241,10 @@ export default function ChatWidget({ widgetId, apiUrl }: ChatWidgetProps) {
         {voiceEnabled && (
           <button
             type="button"
-            onClick={toggleRecording}
+            onClick={voiceInputOnly ? transcribeToInput : toggleRecording}
             disabled={connectionState === 'disconnected' || connectionState === 'error' || voiceState === 'processing'}
-            aria-label={voiceState === 'recording' ? 'Stop recording and send' : 'Start voice recording'}
-            title={voiceState === 'recording' ? 'Stop and send' : 'Speak'}
+            aria-label={voiceState === 'recording' ? 'Stop recording' : voiceInputOnly ? 'Speak to type' : 'Start voice recording'}
+            title={voiceState === 'recording' ? 'Stop' : voiceInputOnly ? 'Speak to type' : 'Speak'}
             className={`p-2 rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all ${
               voiceState === 'recording' ? 'animate-pulse' : ''
             }`}

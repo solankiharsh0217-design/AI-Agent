@@ -83,6 +83,37 @@ export class SubscriptionManager {
     return updated;
   }
 
+  async reactivateSubscription(tenantId: string) {
+    const subscription = await this.subscriptionRepo.findActiveByTenantId(tenantId);
+    if (!subscription) {
+      throw new AppError('NOT_FOUND', 'No subscription to reactivate', { statusCode: 404 });
+    }
+
+    // Resume the Razorpay subscription if one exists (undo cancel_at_cycle_end).
+    if (subscription.stripeSubscriptionId && this.razorpayKeyId && this.razorpayKeySecret) {
+      try {
+        await fetch(`https://api.razorpay.com/v1/subscriptions/${subscription.stripeSubscriptionId}`, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Basic ${btoa(`${this.razorpayKeyId}:${this.razorpayKeySecret}`)}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ cancel_at_cycle_end: 0 }),
+        });
+      } catch (error) {
+        console.error('Failed to resume Razorpay subscription', { error: (error as Error).message });
+      }
+    }
+
+    const updated = await this.subscriptionRepo.update(subscription.id, tenantId, {
+      cancelAtPeriodEnd: false,
+      status: 'active',
+      canceledAt: null as unknown as Date,
+    });
+
+    return updated;
+  }
+
   async cancelSubscription(tenantId: string) {
     const subscription = await this.subscriptionRepo.findActiveByTenantId(tenantId);
     if (!subscription) {

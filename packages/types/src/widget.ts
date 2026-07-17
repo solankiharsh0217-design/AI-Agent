@@ -19,6 +19,7 @@ export type WidgetTheme = z.infer<typeof WidgetTheme>;
 export const WidgetFeatures = z.object({
   chat: z.boolean().default(true),
   voice: z.boolean().default(false),
+  voiceInput: z.boolean().default(false),
   attachments: z.boolean().default(false),
   markdown: z.boolean().default(true),
   copyMessages: z.boolean().default(true),

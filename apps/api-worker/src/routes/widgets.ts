@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { Context } from 'hono';
 import { WidgetRepository, AgentRepository, AuditLogRepository } from '@ai-agent/database';
 import { AuditLogger } from '@ai-agent/shared';
+import { requirePermission } from '../middleware';
 import { z } from 'zod';
 
 const createWidgetSchema = z.object({
@@ -29,6 +30,8 @@ widgets.get('/', async (c: Context) => {
 });
 
 widgets.post('/', async (c: Context) => {
+  const denied = requirePermission(c, 'create:widget');
+  if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const userId = c.get('userId') as string | undefined;
   const db = c.get('db');
@@ -78,6 +81,8 @@ widgets.get('/:id', async (c: Context) => {
 });
 
 widgets.patch('/:id', async (c: Context) => {
+  const denied = requirePermission(c, 'update:widget');
+  if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const userId = c.get('userId') as string | undefined;
   const db = c.get('db');
@@ -115,6 +120,8 @@ widgets.patch('/:id', async (c: Context) => {
 });
 
 widgets.delete('/:id', async (c: Context) => {
+  const denied = requirePermission(c, 'update:widget');
+  if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const userId = c.get('userId') as string | undefined;
   const db = c.get('db');

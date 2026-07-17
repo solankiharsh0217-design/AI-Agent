@@ -43,6 +43,7 @@ interface WidgetConfig {
   features?: {
     chat?: boolean;
     voice?: boolean;
+    voiceInput?: boolean;
   };
 }
 
@@ -512,6 +513,153 @@ useEffect(() => {
     [apiUrl, widgetId, playAudio]
   );
 
+  const sendVoiceStreaming = useCallback(
+    async (audioBlob: Blob) => {
+      const sid = sessionIdRef.current;
+      if (!sid) {
+        setVoiceState('idle');
+        return;
+      }
+      setVoiceState('processing');
+      try {
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.webm');
+        formData.append('sessionId', sid);
+
+        const parentUrl = typeof document !== 'undefined' ? document.referrer : '';
+        const url = new URL(`${apiUrl}/api/widgets/${widgetId}/voice/stream`);
+        if (parentUrl) {
+          url.searchParams.set('parentUrl', parentUrl);
+        }
+        const headers: Record<string, string> = {};
+        if (parentUrl) headers['X-Parent-Origin'] = parentUrl;
+
+        const res = await fetch(url.toString(), {
+          method: 'POST',
+          headers,
+          body: formData,
+        });
+
+        if (!res.ok || !res.body) {
+          throw new Error('Stream failed');
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let transcript = '';
+        let fullReply = '';
+        let audioQueue: { audioBase64: string; format: string; text: string }[] = [];
+        let isPlaying = false;
+
+        const playAudioChunk = (base64: string, fmt: string) => {
+          try {
+            const mime = fmt === 'mp3' ? 'audio/mpeg' : fmt === 'opus' ? 'audio/ogg' : 'audio/wav';
+            const audio = new Audio(`data:${mime};base64,${base64}`);
+            audioElRef.current = audio;
+            setVoiceState('speaking');
+            
+            audio.onended = () => {
+              audioElRef.current = null;
+              playNext();
+            };
+            audio.onerror = () => {
+              audioElRef.current = null;
+              playNext();
+            };
+            audio.play().catch(() => {
+              audioElRef.current = null;
+              playNext();
+            });
+          } catch {
+            playNext();
+          }
+        };
+
+        const playNext = () => {
+          if (audioQueue.length === 0) {
+            isPlaying = false;
+            setVoiceState('idle');
+            return;
+          }
+          isPlaying = true;
+          const { audioBase64, format } = audioQueue.shift()!;
+          playAudioChunk(audioBase64, format);
+        };
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop() || '';
+          
+          for (const line of lines) {
+            if (!line.startsWith('data: ') && !line.startsWith('event: ')) continue;
+            
+            // Parse SSE format
+            let eventType = 'message';
+            let dataStr = '';
+            
+            const eventLines = line.split('\n');
+            for (const el of eventLines) {
+              if (el.startsWith('event: ')) {
+                eventType = el.slice(7);
+              } else if (el.startsWith('data: ')) {
+                dataStr = el.slice(6);
+              }
+            }
+            
+            if (!dataStr) continue;
+            
+            try {
+              const data = JSON.parse(dataStr);
+              
+              if (eventType === 'transcript' || data.type === 'transcript') {
+                transcript = data.text || '';
+              } else if (eventType === 'audio_chunk' || data.type === 'audio_chunk') {
+                audioQueue.push({ 
+                  audioBase64: data.audioBase64, 
+                  format: data.audioFormat || 'wav',
+                  text: data.text || ''
+                });
+                if (!isPlaying) playNext();
+              } else if (eventType === 'end' || data.type === 'end') {
+                fullReply = data.fullReply || '';
+              } else if (eventType === 'error' || data.type === 'error') {
+                console.error('[stream] Error:', data.message);
+              }
+            } catch (e) {
+              console.error('[stream] Parse error:', e);
+            }
+          }
+        }
+        
+        // After stream completes, update messages with final transcript and reply
+        // Note: transcript is not sent in the stream, we'd need to capture it from STT
+        // For now, we'll use a placeholder - the user message was already added via WS or we add it here
+        setMessages((prev) => {
+          // Remove the streaming placeholder messages if any
+          const filtered = prev.filter(m => !m.content.startsWith('[streaming]'));
+          return [
+            ...filtered,
+            { id: crypto.randomUUID(), role: 'user', content: transcript || '(voice input)', timestamp: Date.now(), status: 'sent' },
+            { id: crypto.randomUUID(), role: 'assistant', content: fullReply || '(no reply)', timestamp: Date.now() },
+          ];
+        });
+        
+      } catch (err) {
+        console.error('[stream] Voice streaming error:', err);
+        setMessages((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), role: 'assistant', content: 'Error: could not reach voice service.', timestamp: Date.now() },
+        ]);
+        setVoiceState('idle');
+      }
+    },
+    [apiUrl, widgetId]
+  );
+
   const stopRecording = useCallback(() => {
     const recorder = mediaRecorderRef.current;
     if (recorder && recorder.state !== 'inactive') {
@@ -553,7 +701,7 @@ useEffect(() => {
         const blob = new Blob(audioChunksRef.current, { type: finalMimeType });
         audioChunksRef.current = [];
         if (blob.size > 0) {
-          sendVoice(blob);
+          sendVoiceStreaming(blob);
         } else {
           setVoiceState('idle');
         }
@@ -568,7 +716,7 @@ useEffect(() => {
       ]);
       setVoiceState('idle');
     }
-  }, [voiceState, sendVoice]);
+  }, [voiceState, sendVoiceStreaming]);
 
   // Tap-to-talk toggle: start when idle, stop-and-send when recording
   const toggleRecording = useCallback(() => {
@@ -578,6 +726,70 @@ useEffect(() => {
       startRecording();
     }
   }, [voiceState, startRecording, stopRecording]);
+
+  // STT-input-only transcription: record audio, send to /voice?transcribeOnly=1,
+  // and drop the transcript into the text input (no agent turn, no TTS).
+  const transcribeToInput = useCallback(async () => {
+    if (voiceState === 'recording') {
+      stopRecording();
+      return;
+    }
+    if (voiceState !== 'idle') return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setConnectionError('Microphone not supported in this browser.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : '';
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const chunks: BlobPart[] = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        mediaStreamRef.current = null;
+        setVoiceState('processing');
+        try {
+          const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+          if (blob.size === 0) {
+            setVoiceState('idle');
+            return;
+          }
+          const formData = new FormData();
+          formData.append('audio', blob, 'recording.webm');
+          formData.append('sessionId', sessionIdRef.current || '');
+          formData.append('transcribeOnly', '1');
+          const parentUrl = typeof document !== 'undefined' ? document.referrer : '';
+          const url = new URL(`${apiUrl}/api/widgets/${widgetId}/voice`);
+          if (parentUrl) url.searchParams.set('parentUrl', parentUrl);
+          const headers: Record<string, string> = {};
+          if (parentUrl) headers['X-Parent-Origin'] = parentUrl;
+          const res = await fetch(url.toString(), { method: 'POST', headers, body: formData });
+          const json = await res.json().catch(() => null);
+          const transcript = json?.data?.transcript;
+          if (transcript) {
+            setInput((prev) => (prev ? `${prev}${prev.endsWith(' ') ? '' : ' '}` : '') + transcript);
+          } else if (json?.error?.message) {
+            setConnectionError(json.error.message);
+          }
+        } catch {
+          setConnectionError('Could not transcribe speech. Please try again.');
+        } finally {
+          setVoiceState('idle');
+        }
+      };
+      recorder.start();
+      setVoiceState('recording');
+    } catch {
+      setConnectionError('Microphone access was denied.');
+      setVoiceState('idle');
+    }
+  }, [voiceState, stopRecording, apiUrl, widgetId]);
 
   // Clean up mic + audio on unmount
   useEffect(() => {
@@ -590,6 +802,7 @@ useEffect(() => {
   const suggestedPrompts = config?.chat?.suggestedPrompts || [];
   const greeting = config?.chat?.greeting || null;
   const voiceEnabled = config?.voice?.enabled === true;
+  const voiceInputOnly = config?.features?.voiceInput === true && !voiceEnabled;
   // Voice-only widget: features.chat explicitly false and voice on. Otherwise
   // chat is available (default true for backward compatibility).
   const chatEnabled = config?.features?.chat !== false || !voiceEnabled;
@@ -607,8 +820,10 @@ useEffect(() => {
     greeting,
     config,
     voiceEnabled,
+    voiceInputOnly,
     chatEnabled,
     voiceState,
     toggleRecording,
+    transcribeToInput,
   };
 }

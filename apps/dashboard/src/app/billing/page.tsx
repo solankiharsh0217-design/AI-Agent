@@ -233,13 +233,13 @@ export default function BillingPage() {
   async function handleReactivateSubscription() {
     if (!confirm('Reactivate your subscription? This will cancel the scheduled cancellation.')) return;
     try {
-      // The API doesn't have a reactivate endpoint yet, so we'll need to add it
-      // For now, we'll just cancel the subscription and let the backend handle reactivation
-      // In a real implementation, you'd call an API endpoint like:
-      // await api.billing.reactivateSubscription();
-      setError('Reactivation not yet implemented. Contact support.');
+      setUpgrading(true);
+      await api.billing.reactivateSubscription();
+      await loadBillingData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to reactivate subscription');
+    } finally {
+      setUpgrading(false);
     }
   }
 

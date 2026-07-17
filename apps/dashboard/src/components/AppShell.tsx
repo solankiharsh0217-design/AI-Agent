@@ -4,6 +4,7 @@ import { UserButton } from '@clerk/nextjs';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { SidebarNav } from './Sidebar';
+import { ErrorBoundary } from './ErrorBoundary';
 import { MenuIcon, CloseIcon } from './icons';
 
 /** Routes that render without the dashboard chrome (auth screens). */
@@ -57,7 +58,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main>{children}</main>
+        <main>
+          <ErrorBoundary>{children}</ErrorBoundary>
+        </main>
       </div>
     </div>
   );

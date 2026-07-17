@@ -3,6 +3,7 @@ import { Env, AppVariables } from '../context';
 import { SubscriptionManager } from '@ai-agent/billing';
 import { InvoiceRepository, PlanRepository, SubscriptionRepository } from '@ai-agent/database';
 import { UsageRepository } from '@ai-agent/database';
+import { requirePermission } from '../middleware';
 
 const billing = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -28,6 +29,8 @@ const checkoutSchema = z.object({
 
 // POST /api/v1/billing/checkout - Create Razorpay subscription checkout
 billing.post('/checkout', async (c) => {
+  const denied = requirePermission(c, 'manage:billing');
+  if (denied) return denied;
   const db = c.get('db');
   const tenantId = c.get('tenantId');
   const rawBody = await c.req.json().catch(() => ({}));
@@ -171,15 +174,35 @@ billing.get('/plans', async (c) => {
 
 // DELETE /billing/subscription - cancel subscription
 billing.delete('/subscription', async (c) => {
+  const denied = requirePermission(c, 'manage:billing');
+  if (denied) return denied;
   const tenantId = c.get('tenantId');
   const db = c.get('db');
-  const manager = new SubscriptionManager(db as any);
+  const manager = new SubscriptionManager(db as any, c.env.RAZORPAY_KEY_ID, c.env.RAZORPAY_KEY_SECRET);
   try {
     const canceled = await manager.cancelSubscription(tenantId);
     return c.json({ success: true, data: canceled });
   } catch (error) {
     if (error instanceof Error && error.message.includes('not found')) {
       return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'No active subscription' } }, 404);
+    }
+    throw error;
+  }
+});
+
+// PATCH /billing/subscription - reactivate a canceled (cancel-at-period-end) subscription
+billing.patch('/subscription', async (c) => {
+  const denied = requirePermission(c, 'manage:billing');
+  if (denied) return denied;
+  const tenantId = c.get('tenantId');
+  const db = c.get('db');
+  const manager = new SubscriptionManager(db as any, c.env.RAZORPAY_KEY_ID, c.env.RAZORPAY_KEY_SECRET);
+  try {
+    const reactivated = await manager.reactivateSubscription(tenantId);
+    return c.json({ success: true, data: reactivated });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('not found')) {
+      return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'No subscription to reactivate' } }, 404);
     }
     throw error;
   }

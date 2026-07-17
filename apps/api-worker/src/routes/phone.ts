@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { Context } from 'hono';
 import { PhoneNumberRepository, CallRepository, AgentRepository, AuditLogRepository } from '@ai-agent/database';
 import { AuditLogger } from '@ai-agent/shared';
+import { requirePermission } from '../middleware';
 import { z } from 'zod';
 
 const createNumberSchema = z.object({
@@ -27,6 +28,8 @@ phone.get('/numbers', async (c: Context) => {
 });
 
 phone.post('/numbers', async (c: Context) => {
+  const denied = requirePermission(c, 'manage:phone');
+  if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const userId = c.get('userId') as string | undefined;
   const db = c.get('db');
@@ -59,6 +62,8 @@ phone.post('/numbers', async (c: Context) => {
 });
 
 phone.post('/numbers/:id/assign', async (c: Context) => {
+  const denied = requirePermission(c, 'manage:phone');
+  if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const userId = c.get('userId') as string | undefined;
   const db = c.get('db');
@@ -94,6 +99,8 @@ phone.post('/numbers/:id/assign', async (c: Context) => {
 });
 
 phone.post('/numbers/:id/release', async (c: Context) => {
+  const denied = requirePermission(c, 'manage:phone');
+  if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const userId = c.get('userId') as string | undefined;
   const db = c.get('db');

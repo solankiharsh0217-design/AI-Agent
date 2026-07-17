@@ -104,12 +104,26 @@ export const api = {
     deleteDocument: (kbId: string, documentId: string) => request<void>(`/knowledge/${kbId}/documents/${documentId}`, { method: 'DELETE' }),
   },
   conversations: {
-    list: (params?: { page?: number; limit?: number }) => {
+    list: async (params?: { page?: number; limit?: number }) => {
       const query = new URLSearchParams();
       if (params?.page) query.set('page', params.page.toString());
       if (params?.limit) query.set('limit', params.limit.toString());
-      // Return full response with data and meta for pagination
-      return request<any>(`/conversations?${query.toString()}`);
+      // The backend returns { success, data, meta }. Unlike other endpoints we need the
+      // raw envelope (data + meta) for pagination, so bypass the data.data unwrap.
+      const token = await getAuthToken();
+      const response = await fetch(`${API_BASE_URL}/api/v1/conversations?${query.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: { message: 'Request failed' } }));
+        throw new Error(errorData.error?.message || `Request failed with status ${response.status}`);
+      }
+      const json = await response.json();
+      return { data: json.data ?? [], meta: json.meta ?? { page: 1, limit: 20, total: 0, totalPages: 1 } };
     },
     get: (id: string) => request<any>(`/conversations/${id}`),
     delete: (id: string) => request<void>(`/conversations/${id}`, { method: 'DELETE' }),
@@ -152,6 +166,7 @@ export const api = {
   },
   user: {
     me: () => request<any>('/users/me'),
+    update: (data: { name?: string; avatarUrl?: string }) => request<any>('/users/me', { method: 'PATCH', body: data }),
   },
   billing: {
     getSubscription: () => request<any>('/billing/subscription'),
@@ -160,5 +175,6 @@ export const api = {
     getPlans: () => request<any[]>('/billing/plans'),
     upgradePlan: (planSlug: string) => request<any>('/billing/checkout', { method: 'POST', body: { planSlug } }),
     cancelSubscription: () => request<any>('/billing/subscription', { method: 'DELETE' }),
+    reactivateSubscription: () => request<any>('/billing/subscription', { method: 'PATCH' }),
   },
 };

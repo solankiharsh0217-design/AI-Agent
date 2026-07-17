@@ -158,8 +158,10 @@ export class SessionDurableObject {
         return this.json(await this.endSession());
       case 'GET /status':
         return this.json({ status: (await this.getState()).status });
-      case 'POST /messages':
+case 'POST /messages':
         return this.json(await this.handlePostMessage(await request.json()));
+      case 'POST /stream-messages':
+        return this.handleStreamMessage(await request.json());
       default:
         return this.json({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } }, 404);
     }
@@ -541,6 +543,157 @@ export class SessionDurableObject {
         error: { code: 'INTERNAL_ERROR', message: (err as Error).message },
       };
     }
+  }
+
+  /** Streaming endpoint: LLM tokens → sentence-split → TTS per sentence → SSE chunks. */
+  private async handleStreamMessage(body: {
+    content: string;
+    widgetId?: string;
+    voice?: { language?: string; voiceId?: string | null; speed?: number };
+  }): Promise<Response> {
+    const stream = new ReadableStream({
+      start: async (controller) => {
+        const encoder = new TextEncoder();
+        const send = (event: string, data: unknown) => {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        };
+
+        send('start', { type: 'start' });
+
+        try {
+          const built = await this.buildRuntime();
+          if ('error' in built) {
+            send('error', { type: 'error', message: built.error });
+            controller.close();
+            return;
+          }
+
+          const { runtime, runtimeContext, runtimeConfig, registry, dbSession } = built;
+          // Prefer the widget's own voice config (passed from the /voice/stream route) so a
+          // widget can override the agent's default language/voice. Fall back to the agent
+          // settings if none were supplied.
+          const widgetVoice = body.voice || {};
+          const agentVoice = await this.getVoiceSettings();
+          const settings = {
+            language: widgetVoice.language || agentVoice.language || 'en-IN',
+            voiceId: widgetVoice.voiceId || agentVoice.voiceId,
+            speed: widgetVoice.speed ?? 1.0,
+          };
+          const tts = registry.getTTS();
+
+          // Send transcript immediately so widget can display it
+          send('transcript', { type: 'transcript', text: body.content });
+
+          let sentenceBuffer = '';
+          let fullReply = '';
+
+          for await (const chunk of runtime.streamTurn(body.content, runtimeContext, runtimeConfig)) {
+            fullReply += chunk;
+            sentenceBuffer += chunk;
+
+            // Split on sentence boundaries (., !, ? followed by space or end)
+            const sentences = sentenceBuffer.split(/(?<=[.!?])\s+/);
+            sentenceBuffer = sentences.pop() || '';
+
+            for (const sentence of sentences) {
+              const trimmed = sentence.trim();
+              if (!trimmed) continue;
+
+              try {
+                const ttsResult = await tts.synthesize({
+                  text: trimmed,
+                  language: settings.language,
+                  voiceId: settings.voiceId,
+                  speed: settings.speed,
+                  outputFormat: 'wav',
+                });
+                const audioBase64 = uint8ToBase64(ttsResult.audio);
+                send('audio_chunk', {
+                  type: 'audio_chunk',
+                  audioBase64,
+                  audioFormat: 'wav',
+                  text: trimmed,
+                });
+              } catch (e) {
+                console.error('[stream] TTS chunk failed:', (e as Error).message);
+              }
+            }
+          }
+
+          // Flush remaining buffer
+          if (sentenceBuffer.trim()) {
+            try {
+              const ttsResult = await tts.synthesize({
+                text: sentenceBuffer.trim(),
+                language: settings.language,
+                voiceId: settings.voiceId,
+                speed: settings.speed,
+                outputFormat: 'wav',
+              });
+              const audioBase64 = uint8ToBase64(ttsResult.audio);
+              send('audio_chunk', {
+                type: 'audio_chunk',
+                audioBase64,
+                audioFormat: 'wav',
+                text: sentenceBuffer.trim(),
+              });
+            } catch (e) {
+              console.error('[stream] TTS final chunk failed:', (e as Error).message);
+            }
+          }
+
+          // Persist both the user message and the assistant reply to D1 so the
+          // conversation history survives the session (mirrors handlePostMessage).
+          try {
+            const { ConversationRepository, createDatabase } = await import('@ai-agent/database');
+            const db = createDatabase(this.env.DB);
+            const convRepo = new ConversationRepository(db as any);
+            await convRepo.addMessage({
+              conversationId: dbSession.conversationId,
+              tenantId: dbSession.tenantId,
+              sessionId: dbSession.id,
+              role: 'user',
+              content: body.content,
+              type: 'text',
+            });
+            await convRepo.addMessage({
+              conversationId: dbSession.conversationId,
+              tenantId: dbSession.tenantId,
+              sessionId: dbSession.id,
+              role: 'assistant',
+              content: fullReply,
+              type: 'text',
+            });
+            await convRepo.incrementMessageCount(dbSession.conversationId, dbSession.tenantId);
+          } catch (e) {
+            console.error('[stream] Failed to persist messages:', (e as Error).message);
+          }
+
+          // Persist session state
+          const state = await this.getState();
+          state.messageCount += 2;
+          state.lastUserMessage = body.content;
+          state.lastAssistantMessage = fullReply;
+          state.updatedAt = new Date().toISOString();
+          await this.ctx.storage.put('session', state);
+          this.broadcast({ type: 'state:updated', data: state });
+
+          send('end', { type: 'end', fullReply });
+        } catch (err) {
+          send('error', { type: 'error', message: (err as Error).message });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
   }
 
   // --- Phone voice pipeline (Twilio Media Streams) ---

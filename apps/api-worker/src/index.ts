@@ -407,6 +407,10 @@ widgetsPublic.post('/:id/voice', async (c) => {
   const voiceCfg = (widgetConfig.voice || {}) as { language?: string; voiceId?: string | null; speed?: number };
   const language = (form.get('language') as string | null) || voiceCfg.language || 'en-IN';
 
+  // Transcribe-only mode: used by chatbot widgets where the mic just fills the
+  // text input (STT input) and the reply stays as text — no agent turn, no TTS.
+  const transcribeOnly = form.get('transcribeOnly') === '1' || form.get('transcribeOnly') === 'true' || c.req.query('transcribeOnly') === '1' || c.req.query('transcribeOnly') === 'true';
+
   // 1) Speech-to-text
   let transcript = '';
   try {
@@ -418,6 +422,10 @@ widgetsPublic.post('/:id/voice', async (c) => {
   }
   if (!transcript) {
     return c.json({ success: false, error: { code: 'NO_SPEECH', message: 'No speech detected. Please try again.' } }, 422);
+  }
+
+  if (transcribeOnly) {
+    return c.json({ success: true, data: { transcript } });
   }
 
   // 2) Run the agent turn via the Session Durable Object (reuses the text pipeline)
@@ -477,9 +485,116 @@ widgetsPublic.post('/:id/voice', async (c) => {
   });
 });
 
+  // POST /api/widgets/:id/voice/stream (Streaming voice: audio in → transcript → streaming LLM → streaming TTS via SSE)
+  widgetsPublic.post('/:id/voice/stream', async (c) => {
+    const db = c.get('db');
+    const registry = c.get('registry');
+    const widgetId = c.req.param('id');
+    const { WidgetRepository } = await import('@ai-agent/database');
+    const repo = new WidgetRepository(db as any);
+    const widget = await repo.findByIdUnscoped(widgetId);
+    if (!widget) {
+      return c.json({ success: false, error: { code: 'WIDGET_NOT_FOUND', message: 'Widget not found' } }, 404);
+    }
+
+    const origin = c.req.header('X-Parent-Origin') || c.req.query('parentUrl') || c.req.header('Origin') || c.req.header('Referer');
+    const widgetToken = c.req.query('token') || c.req.header('Authorization')?.slice(7);
+    if (!validateWidgetDomain(widget.domains, origin, widgetToken)) {
+      return c.json({ success: false, error: { code: 'UNAUTHORIZED_DOMAIN', message: 'Domain not whitelisted' } }, 403);
+    }
+
+    // Parse multipart form (audio blob + sessionId)
+    const form = await c.req.formData().catch(() => null);
+    if (!form) {
+      return c.json({ success: false, error: { code: 'INVALID_REQUEST', message: 'Expected multipart/form-data' } }, 400);
+    }
+    const sessionId = (form.get('sessionId') as string | null) || c.req.query('sessionId');
+    const audioFile = form.get('audio');
+    if (!sessionId || !audioFile || typeof audioFile === 'string') {
+      return c.json({ success: false, error: { code: 'INVALID_REQUEST', message: 'sessionId and audio are required' } }, 400);
+    }
+
+    const audioBuffer = await (audioFile as Blob).arrayBuffer();
+    if (audioBuffer.byteLength === 0 || audioBuffer.byteLength > MAX_VOICE_AUDIO_BYTES) {
+      return c.json({ success: false, error: { code: 'INVALID_REQUEST', message: 'audio must be between 1 byte and 8MB' } }, 400);
+    }
+    const mimeType = (audioFile as Blob).type || 'audio/webm';
+
+    // Voice settings from widget config
+    const widgetConfig = typeof widget.config === 'string' ? JSON.parse(widget.config) : (widget.config || {});
+    const voiceCfg = (widgetConfig.voice || {}) as { language?: string; voiceId?: string | null; speed?: number };
+    const language = (form.get('language') as string | null) || voiceCfg.language || 'en-IN';
+
+    // 1) Speech-to-text
+    let transcript = '';
+    try {
+      const stt = registry.getSTT();
+      const sttResult = await stt.transcribe({ audio: new Uint8Array(audioBuffer), mimeType, language });
+      transcript = (sttResult.text || '').trim();
+    } catch (err) {
+      return c.json({ success: false, error: { code: 'STT_ERROR', message: (err as Error).message } }, 502);
+    }
+    if (!transcript) {
+      return c.json({ success: false, error: { code: 'NO_SPEECH', message: 'No speech detected. Please try again.' } }, 422);
+    }
+
+    // 2) Stream from Session DO (SSE)
+    let doId;
+    try {
+      doId = c.env.SESSION_DO.idFromString(sessionId);
+    } catch {
+      doId = c.env.SESSION_DO.idFromName(sessionId);
+    }
+    const stub = c.env.SESSION_DO.get(doId);
+    const doBase = c.req.url.split('/api/widgets')[0];
+    const doRes = await stub.fetch(new Request(`${doBase}/stream-messages?sessionId=${encodeURIComponent(sessionId)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-Auth': c.env.INTERNAL_API_SECRET,
+        'X-Tenant-Id': widget.tenantId,
+      },
+      body: JSON.stringify({
+        content: transcript,
+        widgetId,
+        voice: voiceCfg,
+      }),
+    }));
+
+    // 3) Proxy the SSE stream back to widget.
+    // The widget runs inside an iframe on the widget host, so the browser's *request*
+    // `Origin` is the widget host — NOT the embedding site. The embedding site is passed
+    // separately via `X-Parent-Origin` and is only used to *authorize* the request
+    // (validateWidgetDomain above). The CORS `Access-Control-Allow-Origin` header MUST
+    // reflect the actual request Origin (matching what the browser enforces), otherwise
+    // the browser blocks the streamed body and the widget sees "could not reach voice
+    // service". Mirror the per-widget middleware: allow when the request Origin is a
+    // system origin OR the widget's domain allow-list matches the *embedding* origin
+    // (X-Parent-Origin).
+    const corsHeaders: Record<string, string> = {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    };
+    const requestOrigin = c.req.header('Origin');
+    const systemAllowed = c.env.ALLOWED_ORIGINS?.split(',').map((s: string) => s.trim()).filter(Boolean) ?? [];
+    const originAllowed =
+      !!requestOrigin &&
+      (systemAllowed.includes(requestOrigin) || widgetOriginAllowed(widget.domains, origin));
+    if (originAllowed) {
+      corsHeaders['Access-Control-Allow-Origin'] = requestOrigin!;
+      corsHeaders['Vary'] = 'Origin';
+      corsHeaders['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS';
+      corsHeaders['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Request-Id, X-Parent-Origin';
+      corsHeaders['Access-Control-Max-Age'] = '86400';
+    }
+
+    return new Response(doRes.body, { headers: corsHeaders });
+  });
+
 app.route('/api/widgets', widgetsPublic);
 
-// WebSocket upgrade endpoints
+  // WebSocket upgrade endpoints
 app.all('/ws/widget', async (c) => {
   const sessionId = c.req.query('sessionId');
   const queryTenantId = c.req.query('tenantId');

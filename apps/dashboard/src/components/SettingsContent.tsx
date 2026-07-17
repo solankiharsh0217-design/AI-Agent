@@ -39,10 +39,21 @@ export function SettingsContent() {
     return () => { cancelled = true; };
   }, []);
 
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   async function handleSaveName() {
-    // No user-update endpoint yet — update local state only.
-    setUser(prev => prev ? { ...prev, name } : null);
-    setEditing(false);
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const updated = await api.user.update({ name });
+      setUser(prev => prev ? { ...prev, name: updated?.name ?? name } : null);
+      setEditing(false);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save name');
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (loading) return <LoadingState />;
@@ -65,8 +76,9 @@ export function SettingsContent() {
                 <label className="label">Name</label>
                 <input type="text" value={name} onChange={e => setName(e.target.value)} className="input" />
               </div>
+              {saveError && <div className="text-sm text-red-600">{saveError}</div>}
               <div className="flex gap-2">
-                <button onClick={handleSaveName} className="btn-primary">Save</button>
+                <button onClick={handleSaveName} disabled={saving} className="btn-primary disabled:opacity-50">{saving ? 'Saving…' : 'Save'}</button>
                 <button onClick={() => { setName(user?.name || ''); setEditing(false); }} className="btn-secondary">Cancel</button>
               </div>
             </div>
