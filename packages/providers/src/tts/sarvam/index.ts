@@ -27,7 +27,7 @@ export class SarvamTTSProvider implements TTSProvider {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl ?? 'https://api.sarvam.ai';
     this.timeout = config.timeout ?? 30000;
-    this.model = config.model ?? 'bulbul:v2';
+    this.model = config.model ?? 'bulbul:v3';
     this.defaultSpeaker = config.defaultSpeaker ?? 'anushka';
   }
 

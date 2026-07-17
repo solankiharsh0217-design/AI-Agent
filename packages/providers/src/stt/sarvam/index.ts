@@ -5,6 +5,7 @@ export interface SarvamSTTConfig {
   apiKey: string;
   baseUrl?: string;
   timeout?: number;
+  model?: string;
 }
 
 export class SarvamSTTProvider implements STTProvider {
@@ -12,11 +13,13 @@ export class SarvamSTTProvider implements STTProvider {
   private apiKey: string;
   private baseUrl: string;
   private timeout: number;
+  private model: string;
 
   constructor(config: SarvamSTTConfig) {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl ?? 'https://api.sarvam.ai';
     this.timeout = config.timeout ?? 30000;
+    this.model = config.model ?? 'saaras:v3';
   }
 
   async transcribe(request: STTRequest): Promise<STTResult> {
@@ -27,6 +30,7 @@ export class SarvamSTTProvider implements STTProvider {
     }
     const blob = new Blob([request.audio], { type: mimeType });
     formData.append('file', blob, 'audio.webm');
+    formData.append('model', this.model);
     if (request.language) formData.append('language_code', request.language);
 
     const response = await fetchWithRetry(`${this.baseUrl}/speech-to-text`, {
