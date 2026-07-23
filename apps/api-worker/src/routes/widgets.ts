@@ -120,7 +120,7 @@ widgets.patch('/:id', async (c: Context) => {
 });
 
 widgets.delete('/:id', async (c: Context) => {
-  const denied = requirePermission(c, 'update:widget');
+  const denied = requirePermission(c, 'delete:widget');
   if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const userId = c.get('userId') as string | undefined;

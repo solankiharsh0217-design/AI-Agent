@@ -1,10 +1,12 @@
 'use client';
 import { useAuth } from '@clerk/nextjs';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState, useRef } from 'react';
 import { api, setClerkToken } from '@/lib/api';
 
 export default function KnowledgeBaseDetailPage({ params }: { params: { id: string } }) {
-  const { getToken } = useAuth();
+  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const router = useRouter();
   const [kb, setKb] = useState<any>(null);
   const [documents, setDocuments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -14,8 +16,9 @@ export default function KnowledgeBaseDetailPage({ params }: { params: { id: stri
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (isLoaded && !isSignedIn) { router.push('/sign-in'); return; }
     getToken().then(t => { setClerkToken(t); loadData(); });
-  }, [params.id]);
+  }, [params.id, isLoaded, isSignedIn]);
 
   async function loadData() {
     try {

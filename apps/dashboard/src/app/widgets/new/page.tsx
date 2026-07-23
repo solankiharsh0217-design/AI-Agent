@@ -31,7 +31,7 @@ const BASE_CONFIG = {
 };
 
 export default function NewWidgetPage() {
-  const { getToken } = useAuth();
+  const { isLoaded, isSignedIn, getToken } = useAuth();
   const router = useRouter();
   const [name, setName] = useState('');
   const [agentId, setAgentId] = useState('');
@@ -48,9 +48,10 @@ export default function NewWidgetPage() {
   const [voiceInput, setVoiceInput] = useState(false);
 
   useEffect(() => {
+    if (isLoaded && !isSignedIn) { router.push('/sign-in'); return; }
     getToken().then((t) => setClerkToken(t));
     api.agents.list().then(setAgents).catch(() => {});
-  }, []);
+  }, [isLoaded, isSignedIn]);
 
   async function handleCreate() {
     if (!name.trim() || !agentId) {

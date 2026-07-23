@@ -1,18 +1,21 @@
 'use client';
 import { useAuth } from '@clerk/nextjs';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, setClerkToken } from '@/lib/api';
 
 export default function ConversationDetailPage({ params }: { params: { id: string } }) {
-  const { getToken } = useAuth();
+  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const router = useRouter();
   const [messages, setMessages] = useState<any[]>([]);
   const [conversation, setConversation] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (isLoaded && !isSignedIn) { router.push('/sign-in'); return; }
     getToken().then(t => { setClerkToken(t); loadData(); });
-  }, [params.id]);
+  }, [params.id, isLoaded, isSignedIn]);
 
   async function loadData() {
     try {
@@ -48,7 +51,7 @@ export default function ConversationDetailPage({ params }: { params: { id: strin
   if (!conversation) return <div className="p-8">Conversation not found</div>;
 
   return (
-    <div className="max-w-4xl mx-auto p-8">
+    <div className="max-w-6xl mx-auto p-8">
       {/* Conversation Metadata */}
       <div className="bg-white shadow rounded-lg p-6 mb-6">
         <div className="flex items-center justify-between mb-4">

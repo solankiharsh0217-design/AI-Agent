@@ -69,7 +69,8 @@ export default function PhonePage() {
   const [releasingId, setReleasingId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isLoaded && !isSignedIn) router.push('/sign-in');
+    if (isLoaded && !isSignedIn) { router.push('/sign-in'); return; }
+    if (isLoaded && isSignedIn) loadData();
   }, [isLoaded, isSignedIn]);
 
   async function loadData() {
@@ -82,15 +83,24 @@ export default function PhonePage() {
         api.phone.listCalls(),
       ]);
 
+      const errors: string[] = [];
       if (numbersData.status === 'fulfilled') setNumbers(numbersData.value);
+      else if (numbersData.reason) errors.push(`Numbers: ${numbersData.reason}`);
       if (agentsData.status === 'fulfilled') setAgents(agentsData.value);
+      else if (agentsData.reason) errors.push(`Agents: ${agentsData.reason}`);
       if (callsData.status === 'fulfilled') setCalls(callsData.value);
+      else if (callsData.reason) errors.push(`Calls: ${callsData.reason}`);
+      if (errors.length > 0) setError('Some data failed to load: ' + errors.join('; '));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load phone data');
     } finally {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    loadData();
+  }, [isLoaded, isSignedIn]);
 
   useEffect(() => {
     loadData();

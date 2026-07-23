@@ -137,10 +137,16 @@ export default function BillingPage() {
         api.billing.getPlans(),
       ]);
 
+      const errors: string[] = [];
       if (subData.status === 'fulfilled') setSubscription(subData.value);
+      else if (subData.reason) errors.push(`Subscription: ${subData.reason}`);
       if (invoiceData.status === 'fulfilled') setInvoices(invoiceData.value);
+      else if (invoiceData.reason) errors.push(`Invoices: ${invoiceData.reason}`);
       if (usageData.status === 'fulfilled') setUsage(usageData.value);
+      else if (usageData.reason) errors.push(`Usage: ${usageData.reason}`);
       if (planData.status === 'fulfilled') setPlans(planData.value);
+      else if (planData.reason) errors.push(`Plans: ${planData.reason}`);
+      if (errors.length > 0) setError('Some data failed to load: ' + errors.join('; '));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load billing data');
     } finally {
@@ -315,13 +321,21 @@ export default function BillingPage() {
                         )}
                       </div>
                       <div className="flex gap-3">
-                        {subscription?.cancelAtPeriodEnd && (
+                        {subscription?.cancelAtPeriodEnd ? (
                           <button
                             onClick={handleReactivateSubscription}
                             disabled={upgrading}
                             className="px-4 py-2 border border-green-300 text-sm font-medium rounded-md text-green-700 bg-white hover:bg-green-50 disabled:opacity-50"
                           >
                             Reactivate
+                          </button>
+                        ) : (
+                          <button
+                            onClick={handleCancelSubscription}
+                            disabled={upgrading}
+                            className="px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 disabled:opacity-50"
+                          >
+                            Cancel Subscription
                           </button>
                         )}
                       </div>

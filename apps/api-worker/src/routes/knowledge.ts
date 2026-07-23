@@ -65,6 +65,29 @@ knowledge.get('/:id', async (c: Context) => {
   return c.json({ success: true, data: kb });
 });
 
+knowledge.patch('/:id', async (c: Context) => {
+  const denied = requirePermission(c, 'update:knowledge');
+  if (denied) return denied;
+  const tenantId = c.get('tenantId') as string;
+  const userId = c.get('userId') as string | undefined;
+  const db = c.get('db');
+  const id = c.req.param('id')!;
+  const repo = new KnowledgeBaseRepository(db);
+  const kb = await repo.findById(id, tenantId);
+  if (!kb || kb.tenantId !== tenantId) {
+    return c.json({ success: false, error: { code: 'KNOWLEDGE_BASE_NOT_FOUND', message: 'Knowledge base not found', requestId: c.get('requestId') } }, 404);
+  }
+  const body = await c.req.json<{ name?: string; description?: string }>();
+  await repo.update(id, tenantId, body);
+  const audit = new AuditLogger(new AuditLogRepository(db));
+  await audit.logUpdate(
+    { tenantId, userId, ipAddress: c.req.header('CF-Connecting-IP') ?? undefined },
+    'knowledge_base', id,
+    {}, body
+  );
+  return c.json({ success: true, data: await repo.findById(id, tenantId) });
+});
+
 knowledge.delete('/:id', async (c: Context) => {
   const denied = requirePermission(c, 'delete:knowledge');
   if (denied) return denied;

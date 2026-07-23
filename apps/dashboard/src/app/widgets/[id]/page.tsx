@@ -1,11 +1,12 @@
 'use client';
 import { useAuth } from '@clerk/nextjs';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, setClerkToken } from '@/lib/api';
 import { FormError } from '@/components/ui';
 
-const WIDGET_APP_URL = process.env.NEXT_PUBLIC_WIDGET_URL || 'https://widget-deploy-alpha.vercel.app';
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api-worker.orbitcrew2026.workers.dev';
+const WIDGET_APP_URL = process.env.NEXT_PUBLIC_WIDGET_URL || '';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 const LANGUAGES = [
   { code: 'en-IN', label: 'English (India)' },
@@ -31,7 +32,7 @@ const POSITIONS = [
 const DEFAULTS = {
   theme: { mode: 'system', primaryColor: '#3B82F6', secondaryColor: '#64748B', backgroundColor: '#FFFFFF', surfaceColor: '#F8FAFC', textColor: '#1E293B', borderRadius: 12, fontFamily: 'system-ui, -apple-system, sans-serif', customCSS: '' },
   branding: { logo: '', companyName: '', tagline: '', poweredBy: true },
-  features: { chat: true, voice: false, attachments: false, markdown: true, copyMessages: true, typingIndicator: true, suggestedPrompts: true },
+  features: { chat: true, voice: false, voiceInput: false, attachments: false, markdown: true, copyMessages: true, typingIndicator: true, suggestedPrompts: true },
   behavior: { position: 'bottom-right', offsetX: 20, offsetY: 20, autoOpen: false, autoOpenDelay: 5000, showOnMobile: true, persistSession: true, sessionDuration: 1800 },
   voice: { enabled: false, language: 'en-IN', voiceId: '', vadSensitivity: 0.5, showVisualizer: true, pushToTalk: false },
   chat: { placeholder: 'Type a message...', greeting: '', suggestedPrompts: '', maxMessageLength: 4000, streaming: true, enterToSend: true },
@@ -51,7 +52,8 @@ function mergeConfig(serverConfig: any) {
 }
 
 export default function WidgetDetailPage({ params }: { params: { id: string } }) {
-  const { getToken } = useAuth();
+  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const router = useRouter();
   const [widget, setWidget] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -63,9 +65,12 @@ export default function WidgetDetailPage({ params }: { params: { id: string } })
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  const missingEnv = !WIDGET_APP_URL || !API_URL;
+
   useEffect(() => {
+    if (isLoaded && !isSignedIn) { router.push('/sign-in'); return; }
     getToken().then((t) => { setClerkToken(t); loadWidget(); });
-  }, [params.id]);
+  }, [params.id, isLoaded, isSignedIn]);
 
   async function loadWidget() {
     try {
@@ -105,6 +110,7 @@ export default function WidgetDetailPage({ params }: { params: { id: string } })
   }
 
   function getEmbedCode() {
+    if (!WIDGET_APP_URL || !API_URL) return 'Set NEXT_PUBLIC_WIDGET_URL and NEXT_PUBLIC_API_URL environment variables to generate the embed code.';
     return `<script src="${WIDGET_APP_URL}/embed.js" data-widget-id="${widget.id}" data-api-url="${API_URL}"></script>`;
   }
 
@@ -116,9 +122,10 @@ export default function WidgetDetailPage({ params }: { params: { id: string } })
 
   if (loading) return <div className="p-8">Loading...</div>;
   if (!widget) return <div className="p-8">Not found</div>;
+  if (missingEnv && !editing) return <div className="max-w-6xl mx-auto p-8"><div className="bg-yellow-50 border border-yellow-200 rounded-md p-4"><p className="text-sm text-yellow-700">Missing environment variables NEXT_PUBLIC_WIDGET_URL and/or NEXT_PUBLIC_API_URL. Embed code will be incomplete. Set these in your deployment environment.</p></div></div>;
 
   return (
-    <div className="max-w-4xl mx-auto p-8">
+    <div className="max-w-6xl mx-auto p-8">
       {saveError && <FormError message={saveError} />}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">{editing ? 'Edit Widget' : widget.name}</h1>

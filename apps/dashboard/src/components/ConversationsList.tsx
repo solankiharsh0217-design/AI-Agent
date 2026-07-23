@@ -49,6 +49,7 @@ export function ConversationsList() {
     try {
       await api.conversations.delete(id);
       setConversations(conversations.filter((c) => c.id !== id));
+      setTotal(t => Math.max(0, t - 1));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete conversation');
     }

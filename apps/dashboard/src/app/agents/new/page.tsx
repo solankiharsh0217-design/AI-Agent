@@ -7,7 +7,7 @@ import { PageContainer, PageHeader, FormError } from '@/components/ui';
 import { AgentConfigForm, defaultAgentFormConfig, formToConfig, AgentFormConfig } from '@/components/AgentConfigForm';
 
 export default function NewAgentPage() {
-  const { getToken } = useAuth();
+  const { isLoaded, isSignedIn, getToken } = useAuth();
   const router = useRouter();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -15,7 +15,10 @@ export default function NewAgentPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { getToken().then((t) => setClerkToken(t)); }, []);
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) { router.push('/sign-in'); return; }
+    getToken().then((t) => setClerkToken(t));
+  }, [isLoaded, isSignedIn]);
 
   async function handleCreate() {
     if (!name.trim()) {

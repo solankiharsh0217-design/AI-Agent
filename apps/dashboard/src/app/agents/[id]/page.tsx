@@ -1,6 +1,7 @@
 'use client';
 import { useAuth } from '@clerk/nextjs';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, setClerkToken } from '@/lib/api';
 import { FormError } from '@/components/ui';
@@ -25,7 +26,8 @@ function langLabel(code?: string) {
 }
 
 export default function AgentDetailPage({ params }: { params: { id: string } }) {
-  const { getToken } = useAuth();
+  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const router = useRouter();
   const [agent, setAgent] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -39,12 +41,13 @@ export default function AgentDetailPage({ params }: { params: { id: string } }) 
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (isLoaded && !isSignedIn) { router.push('/sign-in'); return; }
     getToken().then((t) => {
       setClerkToken(t);
       loadAgent();
       loadChannels();
     });
-  }, [params.id]);
+  }, [params.id, isLoaded, isSignedIn]);
 
   function toForm(data: any) {
     setName(data.name);
@@ -116,7 +119,7 @@ export default function AgentDetailPage({ params }: { params: { id: string } }) 
   const v = agent.config?.voiceConfig;
 
   return (
-    <div className="max-w-4xl mx-auto p-8">
+    <div className="max-w-6xl mx-auto p-8">
       {saveError && <FormError message={saveError} />}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">{editing ? 'Edit Agent' : agent.name}</h1>
