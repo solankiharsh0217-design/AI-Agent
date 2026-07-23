@@ -8,6 +8,7 @@ export default function KnowledgeBaseDetailPage({ params }: { params: { id: stri
   const [kb, setKb] = useState<any>(null);
   const [documents, setDocuments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -24,8 +25,9 @@ export default function KnowledgeBaseDetailPage({ params }: { params: { id: stri
       ]);
       setKb(kbData);
       setDocuments(docsData);
+      setError(null);
     } catch (e) {
-      console.error(e);
+      setError(e instanceof Error ? e.message : 'Failed to load knowledge base');
     } finally {
       setLoading(false);
     }
@@ -38,12 +40,11 @@ export default function KnowledgeBaseDetailPage({ params }: { params: { id: stri
     setUploading(true);
     setUploadProgress(0);
 
-    try {
-      // Simulate progress
-      const progressInterval = setInterval(() => {
-        setUploadProgress(prev => prev !== null && prev < 90 ? prev + 10 : prev);
-      }, 200);
+    const progressInterval = setInterval(() => {
+      setUploadProgress(prev => prev !== null && prev < 90 ? prev + 10 : prev);
+    }, 200);
 
+    try {
       const result = await api.knowledge.uploadDocument(params.id, file);
 
       clearInterval(progressInterval);
@@ -54,6 +55,7 @@ export default function KnowledgeBaseDetailPage({ params }: { params: { id: stri
         await loadData();
       }
     } catch (err) {
+      clearInterval(progressInterval);
       console.error('Upload failed:', err);
       alert('Upload failed');
     } finally {
@@ -79,6 +81,7 @@ export default function KnowledgeBaseDetailPage({ params }: { params: { id: stri
   }
 
   if (loading) return <div className="p-8">Loading...</div>;
+  if (error) return <div className="p-8 text-red-600">{error}</div>;
   if (!kb) return <div className="p-8">Not found</div>;
 
   // Calculate stats
@@ -110,7 +113,7 @@ export default function KnowledgeBaseDetailPage({ params }: { params: { id: stri
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-8">
+    <div className="max-w-6xl mx-auto p-8">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">{kb.name}</h1>
@@ -207,24 +210,4 @@ export default function KnowledgeBaseDetailPage({ params }: { params: { id: stri
       )}
     </div>
   );
-}
-
-function formatSize(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${bytes} B`;
-}
-
-function getStatusColor(status: string): string {
-  switch (status) {
-    case 'completed': return 'bg-green-100 text-green-800';
-    case 'failed': return 'bg-red-100 text-red-800';
-    case 'queued':
-    case 'downloading':
-    case 'parsing':
-    case 'chunking':
-    case 'embedding':
-    case 'indexing': return 'bg-yellow-100 text-yellow-800';
-    default: return 'bg-gray-100 text-gray-800';
-  }
 }

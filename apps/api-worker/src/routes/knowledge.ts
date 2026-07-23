@@ -143,6 +143,7 @@ knowledge.post('/:id/documents', async (c: Context) => {
 
   // Queue for ingestion
   await c.env.INGESTION_QUEUE.send({
+    action: 'ingest',
     documentId: doc.id,
     knowledgeBaseId: kb.id,
     tenantId,
