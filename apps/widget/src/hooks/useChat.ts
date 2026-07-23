@@ -63,6 +63,7 @@ export function useChat({ widgetId, apiUrl }: UseChatOptions) {
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectAttempts = useRef(0);
+  const [reconnectKey, setReconnectKey] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -141,7 +142,7 @@ useEffect(() => {
         eventSourceRef.current = null;
       }
     };
-  }, [widgetId, apiUrl]);
+  }, [widgetId, apiUrl, reconnectKey]);
 
   const connectStream = useCallback(
     (sid: string, tenantId?: string) => {
@@ -326,6 +327,7 @@ useEffect(() => {
             payload: { content: message.content, sessionId },
           })
         );
+        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, status: 'sent' } : m));
       } else {
         try {
           const parentUrl = typeof document !== 'undefined' ? document.referrer : '';
@@ -628,6 +630,10 @@ useEffect(() => {
                 fullReply = data.fullReply || '';
               } else if (eventType === 'error' || data.type === 'error') {
                 console.error('[stream] Error:', data.message);
+                setMessages((prev) => [
+                  ...prev,
+                  { id: crypto.randomUUID(), role: 'assistant', content: `Error: ${data.message}`, timestamp: Date.now() },
+                ]);
               }
             } catch (e) {
               console.error('[stream] Parse error:', e);
@@ -635,9 +641,12 @@ useEffect(() => {
           }
         }
         
+        // Reset voice state if stream ended with no audio
+        if (!isPlaying && audioQueue.length === 0) {
+          setVoiceState('idle');
+        }
+
         // After stream completes, update messages with final transcript and reply
-        // Note: transcript is not sent in the stream, we'd need to capture it from STT
-        // For now, we'll use a placeholder - the user message was already added via WS or we add it here
         setMessages((prev) => {
           // Remove the streaming placeholder messages if any
           const filtered = prev.filter(m => !m.content.startsWith('[streaming]'));
@@ -807,6 +816,12 @@ useEffect(() => {
   // chat is available (default true for backward compatibility).
   const chatEnabled = config?.features?.chat !== false || !voiceEnabled;
 
+  const reconnect = useCallback(() => {
+    setReconnectKey(k => k + 1);
+    setConnectionState('connecting');
+    setConnectionError(null);
+  }, []);
+
   return {
     messages,
     input,
@@ -825,5 +840,6 @@ useEffect(() => {
     voiceState,
     toggleRecording,
     transcribeToInput,
+    reconnect,
   };
 }

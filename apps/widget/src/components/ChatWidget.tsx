@@ -28,6 +28,7 @@ export default function ChatWidget({ widgetId, apiUrl }: ChatWidgetProps) {
     voiceState,
     toggleRecording,
     transcribeToInput,
+    reconnect,
   } = useChat({ widgetId, apiUrl });
 
   const primaryColor = config?.theme?.primaryColor || '#3B82F6';
@@ -152,8 +153,14 @@ export default function ChatWidget({ widgetId, apiUrl }: ChatWidgetProps) {
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         {connectionError && (
-          <div className="mx-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-            {connectionError}
+          <div className="mx-1 space-y-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            <div>{connectionError}</div>
+            <button
+              onClick={reconnect}
+              className="rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-200"
+            >
+              Retry connection
+            </button>
           </div>
         )}
 
@@ -209,7 +216,7 @@ export default function ChatWidget({ widgetId, apiUrl }: ChatWidgetProps) {
           </div>
         )}
 
-        {suggestedPrompts && suggestedPrompts.length > 0 && messages.length === 0 && (
+        {suggestedPrompts && suggestedPrompts.length > 0 && messages.length === 0 && !voiceOnly && (
           <div className="flex flex-wrap gap-2 pt-2">
             {suggestedPrompts.map((prompt, i) => (
               <button
@@ -243,10 +250,19 @@ export default function ChatWidget({ widgetId, apiUrl }: ChatWidgetProps) {
           className="px-4 py-5 border-t flex flex-col items-center gap-2"
           style={{ borderTopColor: config?.theme?.secondaryColor || '#e5e7eb' }}
         >
+          {(connectionState === 'disconnected' || connectionState === 'error') && (
+            <button
+              type="button"
+              onClick={connect}
+              className="text-xs text-red-500 underline hover:text-red-700"
+            >
+              Connection lost — click to reconnect
+            </button>
+          )}
           <button
             type="button"
             onClick={toggleRecording}
-            disabled={connectionState === 'disconnected' || connectionState === 'error' || voiceState === 'processing'}
+            disabled={connectionState !== 'connected' || voiceState === 'processing'}
             aria-label={voiceState === 'recording' ? 'Stop recording and send' : 'Start voice recording'}
             className={`flex h-16 w-16 items-center justify-center rounded-full text-white shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all ${
               voiceState === 'recording' ? 'animate-pulse ring-4 ring-red-200' : 'hover:scale-105'

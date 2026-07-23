@@ -1,6 +1,7 @@
 import { SubscriptionRepository, InvoiceRepository } from '@ai-agent/database';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
 import { AppError } from '@ai-agent/shared';
+import { InvoiceManager } from './invoice';
 
 export interface RazorpayWebhookPayload {
   event: string;
@@ -38,11 +39,13 @@ function timingSafeEqual(a: string, b: string): boolean {
 export class WebhookHandler {
   private subscriptionRepo: SubscriptionRepository;
   private invoiceRepo: InvoiceRepository;
+  private invoiceManager: InvoiceManager;
   private webhookSecret: string;
 
   constructor(db: DrizzleD1Database, webhookSecret: string) {
     this.subscriptionRepo = new SubscriptionRepository(db as any);
     this.invoiceRepo = new InvoiceRepository(db as any);
+    this.invoiceManager = new InvoiceManager(db as any);
     this.webhookSecret = webhookSecret;
   }
 
@@ -102,6 +105,15 @@ export class WebhookHandler {
         if (!payEntity) return { handled: false };
         const razorpaySubId = subEntity?.id;
         if (razorpaySubId) {
+          const sub = await (this.subscriptionRepo as any).findByExternalSubscriptionId(razorpaySubId) as any;
+          if (sub) {
+            const existing = await this.invoiceRepo.findBySubscriptionId(sub.id, sub.tenantId);
+            if (!existing) {
+              const periodStart = subEntity?.current_start ? new Date(subEntity.current_start * 1000) : new Date();
+              const periodEnd = subEntity?.current_end ? new Date(subEntity.current_end * 1000) : new Date();
+              await this.invoiceManager.generateInvoice(sub.tenantId, { start: periodStart, end: periodEnd });
+            }
+          }
           await this.updateInvoiceStatus(razorpaySubId, payEntity.amount, payEntity.currency);
         }
         return { handled: true };

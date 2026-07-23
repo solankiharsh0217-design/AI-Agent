@@ -1,13 +1,43 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
+import { Suspense, useEffect } from 'react';
 import ChatWidget from '@/components/ChatWidget';
 
 function WidgetContent() {
   const searchParams = useSearchParams();
   const widgetId = searchParams.get('widgetId') || '';
   const apiUrl = searchParams.get('apiUrl') || '';
+
+  useEffect(() => {
+    function handlePostMessage(event: MessageEvent) {
+      const { type, payload } = event.data || {};
+      if (!type) return;
+
+      switch (type) {
+        case 'chat:send':
+          window.dispatchEvent(new CustomEvent('sdk:send', { detail: payload }));
+          break;
+        case 'widget:open':
+          window.dispatchEvent(new CustomEvent('sdk:open'));
+          break;
+        case 'widget:close':
+          window.dispatchEvent(new CustomEvent('sdk:close'));
+          break;
+      }
+
+      // Reply so the SDK knows the widget is alive and can forward messages
+      if (event.source && (event.source as Window).postMessage) {
+        (event.source as Window).postMessage(
+          { type: 'widget:ack', payload: { received: type } },
+          { targetOrigin: '*' }
+        );
+      }
+    }
+
+    window.addEventListener('message', handlePostMessage);
+    return () => window.removeEventListener('message', handlePostMessage);
+  }, []);
 
   if (!widgetId) {
     return (

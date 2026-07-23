@@ -9,6 +9,8 @@ const billing = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
 // GET /api/v1/billing/subscription - Get active subscription state
 billing.get('/subscription', async (c) => {
+  const denied = requirePermission(c, 'manage:billing');
+  if (denied) return denied;
   const db = c.get('db');
   const tenantId = c.get('tenantId');
 
@@ -154,6 +156,8 @@ billing.post('/webhook', async (c) => {
 
 // GET /billing/invoices - list invoices
 billing.get('/invoices', async (c) => {
+  const denied = requirePermission(c, 'manage:billing');
+  if (denied) return denied;
   const tenantId = c.get('tenantId');
   const db = c.get('db');
   const repo = new InvoiceRepository(db as any);
@@ -163,6 +167,8 @@ billing.get('/invoices', async (c) => {
 
 // GET /billing/usage - get usage summary
 billing.get('/usage', async (c) => {
+  const denied = requirePermission(c, 'manage:billing');
+  if (denied) return denied;
   const tenantId = c.get('tenantId');
   const db = c.get('db');
   const repo = new UsageRepository(db as any);
@@ -172,6 +178,8 @@ billing.get('/usage', async (c) => {
 
 // GET /billing/plans - list available plans
 billing.get('/plans', async (c) => {
+  const denied = requirePermission(c, 'manage:billing');
+  if (denied) return denied;
   const db = c.get('db');
   const repo = new PlanRepository(db as any);
   const plans = await repo.list();

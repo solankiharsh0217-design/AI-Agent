@@ -20,6 +20,8 @@ const assignNumberSchema = z.object({
 const phone = new Hono();
 
 phone.get('/numbers', async (c: Context) => {
+  const denied = requirePermission(c, 'manage:phone');
+  if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const db = c.get('db');
   const repo = new PhoneNumberRepository(db);
@@ -122,6 +124,8 @@ phone.post('/numbers/:id/release', async (c: Context) => {
 });
 
 phone.get('/calls', async (c: Context) => {
+  const denied = requirePermission(c, 'manage:phone');
+  if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const db = c.get('db');
   const repo = new CallRepository(db);
