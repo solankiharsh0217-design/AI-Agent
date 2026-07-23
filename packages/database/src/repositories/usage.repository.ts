@@ -26,8 +26,8 @@ export class UsageRepository {
 
   async getUsageByTenant(tenantId: string, { from, to }: { from?: Date; to?: Date } = {}) {
     const conditions = [eq(usageRecords.tenantId, tenantId)];
-    if (from) conditions.push(sql`${usageRecords.createdAt} >= ${from}`);
-    if (to) conditions.push(sql`${usageRecords.createdAt} <= ${to}`);
+    if (from) conditions.push(sql`${usageRecords.createdAt} >= ${Math.floor(from.getTime() / 1000)}`);
+    if (to) conditions.push(sql`${usageRecords.createdAt} <= ${Math.floor(to.getTime() / 1000)}`);
 
     return this.db.select({
       event: usageRecords.event,
@@ -40,8 +40,8 @@ export class UsageRepository {
 
   async getUsageByAgent(agentId: string, tenantId: string, { from, to }: { from?: Date; to?: Date } = {}) {
     const conditions = [eq(usageRecords.agentId, agentId), eq(usageRecords.tenantId, tenantId)];
-    if (from) conditions.push(sql`${usageRecords.createdAt} >= ${from}`);
-    if (to) conditions.push(sql`${usageRecords.createdAt} <= ${to}`);
+    if (from) conditions.push(sql`${usageRecords.createdAt} >= ${Math.floor(from.getTime() / 1000)}`);
+    if (to) conditions.push(sql`${usageRecords.createdAt} <= ${Math.floor(to.getTime() / 1000)}`);
 
     return this.db.select({
       event: usageRecords.event,
@@ -54,8 +54,8 @@ export class UsageRepository {
 
   async getTotalCost(tenantId: string, { from, to }: { from?: Date; to?: Date } = {}) {
     const conditions = [eq(usageRecords.tenantId, tenantId)];
-    if (from) conditions.push(sql`${usageRecords.createdAt} >= ${from}`);
-    if (to) conditions.push(sql`${usageRecords.createdAt} <= ${to}`);
+    if (from) conditions.push(sql`${usageRecords.createdAt} >= ${Math.floor(from.getTime() / 1000)}`);
+    if (to) conditions.push(sql`${usageRecords.createdAt} <= ${Math.floor(to.getTime() / 1000)}`);
 
     const result = await this.db.select({
       totalCost: sql<number>`coalesce(sum(${usageRecords.cost}), 0)`,

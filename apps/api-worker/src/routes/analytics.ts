@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
-import { Context } from 'hono';
+import { requirePermission } from '../middleware';
 import { UsageRepository } from '@ai-agent/database';
+import type { Env, AppVariables } from '../context';
 
-const analytics = new Hono();
+const analytics = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
 function safeParseDate(value: string | undefined): Date | undefined {
   if (!value) return undefined;
@@ -10,10 +11,12 @@ function safeParseDate(value: string | undefined): Date | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
-analytics.get('/', async (c: Context) => {
-  const tenantId = c.get('tenantId') as string;
+analytics.get('/', async (c) => {
+  const denied = requirePermission(c, 'view:analytics');
+  if (denied) return denied;
+  const tenantId = c.get('tenantId');
   const db = c.get('db');
-  const usageRepo = new UsageRepository(db);
+  const usageRepo = new UsageRepository(db as any);
 
   const from = safeParseDate(c.req.query('from'));
   const to = safeParseDate(c.req.query('to'));
@@ -31,10 +34,12 @@ analytics.get('/', async (c: Context) => {
   });
 });
 
-analytics.get('/usage', async (c: Context) => {
-  const tenantId = c.get('tenantId') as string;
+analytics.get('/usage', async (c) => {
+  const denied = requirePermission(c, 'view:analytics');
+  if (denied) return denied;
+  const tenantId = c.get('tenantId');
   const db = c.get('db');
-  const repo = new UsageRepository(db);
+  const repo = new UsageRepository(db as any);
 
   const from = safeParseDate(c.req.query('from'));
   const to = safeParseDate(c.req.query('to'));
@@ -43,10 +48,12 @@ analytics.get('/usage', async (c: Context) => {
   return c.json({ success: true, data: usage });
 });
 
-analytics.get('/cost', async (c: Context) => {
-  const tenantId = c.get('tenantId') as string;
+analytics.get('/cost', async (c) => {
+  const denied = requirePermission(c, 'view:analytics');
+  if (denied) return denied;
+  const tenantId = c.get('tenantId');
   const db = c.get('db');
-  const repo = new UsageRepository(db);
+  const repo = new UsageRepository(db as any);
 
   const from = safeParseDate(c.req.query('from'));
   const to = safeParseDate(c.req.query('to'));
