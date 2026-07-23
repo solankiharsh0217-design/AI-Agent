@@ -187,6 +187,15 @@ cd apps/ingestion-worker
 wrangler deploy
 ```
 
+> **Note**: The Vercel projects `dashboard-deploy` and `widget-deploy` had their `rootDirectory` set to `apps/dashboard` and `apps/widget` respectively, which conflicts with deploying from a `/tmp/` copy (the source is already at root, not nested). This was fixed by patching the project via the Vercel API:
+> ```bash
+> curl -X PATCH "https://api.vercel.com/v9/projects/\${PROJECT_ID}?teamId=\${TEAM_ID}" \
+>   -H "Authorization: Bearer \${VERCEL_TOKEN}" \
+>   -H "Content-Type: application/json" \
+>   -d '{"rootDirectory":null}'
+> ```
+> Run this once per project before deploying from `/tmp/`.
+
 ### Step 7: Deploy Dashboard to Vercel
 ```bash
 # First, build packages that dashboard depends on
@@ -199,7 +208,7 @@ rm -rf /tmp/dashboard-deploy && mkdir -p /tmp/dashboard-deploy
 cp -r apps/dashboard/* /tmp/dashboard-deploy/
 rm -rf /tmp/dashboard-deploy/.next /tmp/dashboard-deploy/node_modules
 
-# Remove workspace: references from package.json
+# Replace workspace: references with placeholders
 cd /tmp/dashboard-deploy
 python3 -c "
 import json
@@ -209,7 +218,8 @@ pkg['dependencies']['@ai-agent/shared'] = '0.0.0'
 with open('package.json', 'w') as f: json.dump(pkg, f, indent=2)
 "
 
-# Create local packages for workspace deps
+# Create local packages for workspace deps (these contain TS source;
+# Next.js transpilePackages compiles them at build time)
 mkdir -p local-packages/@ai-agent
 cd /path/to/AI-Agent/packages/types && npm pack --pack-destination /tmp/dashboard-deploy/local-packages/@ai-agent/
 cd /path/to/AI-Agent/packages/shared && npm pack --pack-destination /tmp/dashboard-deploy/local-packages/@ai-agent/
@@ -254,7 +264,7 @@ rm -rf /tmp/widget-deploy && mkdir -p /tmp/widget-deploy
 cp -r apps/widget/* /tmp/widget-deploy/
 rm -rf /tmp/widget-deploy/.next /tmp/widget-deploy/node_modules
 
-# Remove workspace: references
+# Remove unused workspace: references (@ai-agent/types not imported)
 cd /tmp/widget-deploy
 python3 -c "
 import json
@@ -270,7 +280,7 @@ npm run build
 vercel link --project widget-deploy --yes
 vercel --prod --yes
 
-# Set env var
+# Set env var (run once, persists across deployments)
 vercel env add NEXT_PUBLIC_API_URL production <<< 'https://api-worker.orbitcrew2026.workers.dev'
 ```
 

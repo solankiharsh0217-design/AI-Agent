@@ -60,3 +60,4 @@ packages/*/src/**/*.d.ts.map
 
 # Local project reference doc (kept out of the repo)
 IMPROVEMENTS.md
+.env*
