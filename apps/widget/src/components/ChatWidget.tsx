@@ -253,7 +253,7 @@ export default function ChatWidget({ widgetId, apiUrl }: ChatWidgetProps) {
           {(connectionState === 'disconnected' || connectionState === 'error') && (
             <button
               type="button"
-              onClick={connect}
+              onClick={reconnect}
               className="text-xs text-red-500 underline hover:text-red-700"
             >
               Connection lost — click to reconnect
