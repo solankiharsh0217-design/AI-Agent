@@ -92,6 +92,7 @@ describe('AgentRuntime', () => {
     mockMemory = {
       addMessage: vi.fn().mockResolvedValue(null),
       getConversationHistory: vi.fn().mockResolvedValue({ messages: [] }),
+      trimHistory: vi.fn().mockResolvedValue(null),
     };
 
     mockKnowledge = {
@@ -156,8 +157,8 @@ describe('AgentRuntime', () => {
     );
 
     expect(result.content).toBe('Hello user');
-    expect(mockMemory.addMessage).toHaveBeenCalledWith('conv-789', 'user', 'Hi there', 0);
-    expect(mockMemory.addMessage).toHaveBeenCalledWith('conv-789', 'assistant', 'Hello user', 25);
+    expect(mockMemory.addMessage).toHaveBeenCalledWith('conv-789', 'tenant-123', 'user', 'Hi there', expect.any(Number));
+    expect(mockMemory.addMessage).toHaveBeenCalledWith('conv-789', 'tenant-123', 'assistant', 'Hello user', 25);
     expect(mockSessionManager.updateSessionState).toHaveBeenCalled();
   });
 
@@ -202,6 +203,6 @@ describe('AgentRuntime', () => {
     }
 
     expect(chunks).toEqual(['Hello ', 'user']);
-    expect(mockMemory.addMessage).toHaveBeenCalledWith('conv-789', 'assistant', 'Hello user', 0);
+    expect(mockMemory.addMessage).toHaveBeenCalledWith('conv-789', 'tenant-123', 'assistant', 'Hello user', expect.any(Number));
   });
 });

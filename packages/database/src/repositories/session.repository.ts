@@ -28,6 +28,11 @@ export class SessionRepository {
     return row[0] ?? null;
   }
 
+  async findByIdUnscoped(id: string) {
+    const row = await this.db.select().from(sessions).where(eq(sessions.id, id));
+    return row[0] ?? null;
+  }
+
   async findByTenantId(tenantId: string) {
     return this.db.select().from(sessions)
       .where(eq(sessions.tenantId, tenantId))

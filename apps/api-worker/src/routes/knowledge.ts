@@ -89,6 +89,8 @@ knowledge.delete('/:id', async (c: Context) => {
 });
 
 knowledge.post('/:id/documents', async (c: Context) => {
+  const denied = requirePermission(c, 'create:knowledge');
+  if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const userId = c.get('userId') as string | undefined;
   const db = c.get('db');
@@ -176,6 +178,8 @@ knowledge.get('/:id/documents', async (c: Context) => {
 });
 
 knowledge.delete('/:id/documents/:documentId', async (c: Context) => {
+  const denied = requirePermission(c, 'delete:knowledge');
+  if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const userId = c.get('userId') as string | undefined;
   const db = c.get('db');

@@ -142,7 +142,6 @@ export class SubscriptionManager {
 
     const updated = await this.subscriptionRepo.update(subscription.id, tenantId, {
       cancelAtPeriodEnd: true,
-      status: 'canceled',
       canceledAt: new Date(),
     });
 

@@ -66,7 +66,13 @@ billing.post('/checkout', async (c) => {
     enterprise: 'plan_enterprise_placeholder',
   };
 
-  const razorpayPlanId = planMapping[planSlug] || 'plan_free_placeholder';
+  const razorpayPlanId = planMapping[planSlug];
+  if (!razorpayPlanId) {
+    return c.json({
+      success: false,
+      error: { code: 'INVALID_REQUEST', message: `Unknown plan slug: ${planSlug}`, requestId: c.get('requestId') },
+    }, 400);
+  }
 
   // If free plan, no Razorpay subscription is needed
   if (planSlug === 'free') {

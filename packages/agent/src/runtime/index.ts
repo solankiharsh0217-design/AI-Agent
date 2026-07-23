@@ -307,13 +307,14 @@ export class AgentRuntime {
       await this.memory.trimHistory(context.conversationId, context.tenantId, config.memoryConfig);
 
       // 12. Update session state
+      const totalTokens = llmResponse.usage.total_tokens;
       await this.sessionManager.updateSessionState(context.sessionId, context.tenantId, {
         messageCount: history.length + 2,
         tokenUsage: {
           promptTokens: llmResponse.usage.prompt_tokens,
           completionTokens: llmResponse.usage.completion_tokens,
-          totalTokens: llmResponse.usage.total_tokens,
-          estimatedCostUsd: 0,
+          totalTokens,
+          estimatedCostUsd: (totalTokens / 1_000_000) * 1.0,
         },
         currentTurn: plannerContext.messageCount + 1,
         lastUserMessage: userMessage,
@@ -616,7 +617,7 @@ export class AgentRuntime {
     }
 
     // Store complete response
-    await this.memory.addMessage(context.conversationId, context.tenantId, 'assistant', fullContent, 0);
+    await this.memory.addMessage(context.conversationId, context.tenantId, 'assistant', fullContent, streamUsage.totalTokens);
 
     // Emit assistant_message event
     await this.eventBus.emit(this.eventBus.createEvent('assistant_message', {
@@ -640,13 +641,14 @@ export class AgentRuntime {
     await this.memory.trimHistory(context.conversationId, context.tenantId, config.memoryConfig);
 
     // Update session state
+    const streamTotalTokens = streamUsage.totalTokens;
     await this.sessionManager.updateSessionState(context.sessionId, context.tenantId, {
       messageCount: history.length + 2,
       tokenUsage: {
         promptTokens: streamUsage.promptTokens,
         completionTokens: streamUsage.completionTokens,
-        totalTokens: streamUsage.totalTokens,
-        estimatedCostUsd: 0,
+        totalTokens: streamTotalTokens,
+        estimatedCostUsd: (streamTotalTokens / 1_000_000) * 1.0,
       },
       currentTurn: plannerContext.messageCount + 1,
       lastUserMessage: userMessage,

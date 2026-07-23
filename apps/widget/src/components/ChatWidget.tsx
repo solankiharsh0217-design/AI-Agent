@@ -49,6 +49,55 @@ export default function ChatWidget({ widgetId, apiUrl }: ChatWidgetProps) {
     }
   }, [input]);
 
+  // Listen for postMessage commands from the embedding SDK
+  useEffect(() => {
+    const handleParentMessage = (event: MessageEvent) => {
+      const { type, payload } = event.data || {};
+      if (!type) return;
+
+      switch (type) {
+        case 'chat:send':
+          if (payload?.content) {
+            sendMessage(payload.content);
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('message', handleParentMessage);
+    return () => window.removeEventListener('message', handleParentMessage);
+  }, [sendMessage]);
+
+  // Notify parent of new messages
+  const prevMessagesLengthRef = useRef(0);
+  useEffect(() => {
+    if (messages.length > prevMessagesLengthRef.current && window.parent !== window) {
+      const lastMsg = messages[messages.length - 1];
+      window.parent.postMessage({
+        type: 'chat:message',
+        payload: {
+          id: lastMsg.id,
+          role: lastMsg.role,
+          content: lastMsg.content,
+          timestamp: lastMsg.timestamp,
+        },
+      }, '*');
+    }
+    prevMessagesLengthRef.current = messages.length;
+  }, [messages]);
+
+  // Notify parent of connection state changes
+  const prevConnectionStateRef = useRef(connectionState);
+  useEffect(() => {
+    if (prevConnectionStateRef.current !== connectionState && window.parent !== window) {
+      window.parent.postMessage({
+        type: 'widget:state',
+        payload: { state: connectionState },
+      }, '*');
+      prevConnectionStateRef.current = connectionState;
+    }
+  }, [connectionState]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || connectionState === 'disconnected' || connectionState === 'error' || isSendingRef.current) return;

@@ -1,4 +1,4 @@
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, asc, desc, sql } from 'drizzle-orm';
 import { conversations } from '../schema/conversations';
 import { messages } from '../schema/messages';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
@@ -63,18 +63,18 @@ export class ConversationRepository {
     return this.findById(id, tenantId);
   }
 
-  async incrementMessageCount(id: string, tenantId: string, tokens: number = 0) {
+  async incrementMessageCount(id: string, tenantId: string, tokens: number = 0, count: number = 1) {
     const updates: Record<string, unknown> = { updatedAt: new Date() };
     const conditions = [eq(conversations.id, id), eq(conversations.tenantId, tenantId)];
     if (tokens > 0) {
       await this.db.update(conversations).set({
-        messageCount: sql`${conversations.messageCount} + 1`,
+        messageCount: sql`${conversations.messageCount} + ${count}`,
         totalTokens: sql`${conversations.totalTokens} + ${tokens}`,
         ...updates,
       }).where(and(...conditions));
     } else {
       await this.db.update(conversations).set({
-        messageCount: sql`${conversations.messageCount} + 1`,
+        messageCount: sql`${conversations.messageCount} + ${count}`,
         ...updates,
       }).where(and(...conditions));
     }
@@ -117,7 +117,7 @@ export class ConversationRepository {
   async getMessages(conversationId: string, tenantId: string, { limit = 50, offset = 0 } = {}) {
     return this.db.select().from(messages)
       .where(and(eq(messages.conversationId, conversationId), eq(messages.tenantId, tenantId)))
-      .orderBy(desc(messages.createdAt))
+      .orderBy(messages.createdAt)
       .limit(limit)
       .offset(offset);
   }

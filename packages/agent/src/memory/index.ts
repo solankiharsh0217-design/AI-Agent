@@ -106,8 +106,10 @@ Provide a clear, concise summary that captures the essential information.`;
     tenantId: string,
     role: MessageRole,
     content: string,
-    tokenCount: number
+    tokenCount: number,
+    estimatedCostUsd?: number
   ): Promise<void> {
+    const cost = estimatedCostUsd ?? (tokenCount > 0 ? (tokenCount / 1_000_000) * 1.0 : 0);
     await this.conversationRepo.addMessage({
       conversationId,
       tenantId,
@@ -117,7 +119,7 @@ Provide a clear, concise summary that captures the essential information.`;
         inputTokens: role === 'user' ? tokenCount : 0,
         outputTokens: role === 'assistant' ? tokenCount : 0,
         totalTokens: tokenCount,
-        estimatedCostUsd: 0,
+        estimatedCostUsd: cost,
       },
     });
 

@@ -158,6 +158,8 @@ agents.post('/:id/publish', async (c: Context) => {
 });
 
 agents.post('/:id/archive', async (c: Context) => {
+  const denied = requirePermission(c, 'update:agent');
+  if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const userId = c.get('userId') as string | undefined;
   const db = c.get('db');

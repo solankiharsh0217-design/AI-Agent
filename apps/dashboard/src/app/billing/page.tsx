@@ -58,18 +58,17 @@ interface Invoice {
 }
 
 interface Usage {
-  metric: string;
-  quantity: number;
-  limit: number;
-  unit: string;
+  event: string;
+  totalQuantity: number;
+  totalCost: number;
 }
 
-const USAGE_METRICS: Record<string, { label: string; unit: string }> = {
-  tokens_input: { label: 'LLM Tokens (Input)', unit: 'tokens' },
-  tokens_output: { label: 'LLM Tokens (Output)', unit: 'tokens' },
-  voice_minutes_stt: { label: 'STT Minutes', unit: 'min' },
-  voice_minutes_tts: { label: 'TTS Minutes', unit: 'min' },
-  storage_mb: { label: 'Storage', unit: 'MB' },
+const USAGE_LABELS: Record<string, string> = {
+  llm_call: 'LLM Calls',
+  stt: 'Speech-to-Text (seconds)',
+  tts: 'Text-to-Speech (seconds)',
+  embedding: 'Embeddings',
+  storage: 'Storage (GB)',
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -244,13 +243,10 @@ export default function BillingPage() {
   }
 
   function getUsagePercentage(metric: Usage): number {
-    if (metric.limit === 0) return 0;
-    return Math.min((metric.quantity / metric.limit) * 100, 100);
+    return 0;
   }
 
   function getUsageBarColor(percentage: number): string {
-    if (percentage >= 90) return 'bg-red-500';
-    if (percentage >= 70) return 'bg-yellow-500';
     return 'bg-indigo-500';
   }
 
@@ -337,30 +333,18 @@ export default function BillingPage() {
                     <h2 className="text-lg font-medium text-slate-900 mb-4">Usage This Period</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {usage.map((item) => {
-                        const meta = USAGE_METRICS[item.metric];
-                        if (!meta) return null;
-                        const pct = getUsagePercentage(item);
+                        const label = USAGE_LABELS[item.event] ?? item.event.replace(/_/g, ' ');
                         return (
-                          <div key={item.metric} className="border border-slate-200 rounded-lg p-4">
+                          <div key={item.event} className="border border-slate-200 rounded-lg p-4">
                             <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-medium text-slate-700">{meta.label}</span>
-                              <span className="text-xs text-slate-500">{item.unit}</span>
+                              <span className="text-sm font-medium text-slate-700">{label}</span>
+                              <span className="text-xs text-slate-500">{item.totalCost > 0 ? '$' + item.totalCost.toFixed(4) : ''}</span>
                             </div>
                             <div className="flex items-baseline gap-1 mb-2">
                               <span className="text-2xl font-semibold text-slate-900">
-                                {item.quantity.toLocaleString()}
-                              </span>
-                              <span className="text-sm text-slate-500">
-                                / {item.limit.toLocaleString()}
+                                {(item.totalQuantity || 0).toLocaleString()}
                               </span>
                             </div>
-                            <div className="w-full bg-gray-200 rounded-full h-2">
-                              <div
-                                className={`h-2 rounded-full transition-all ${getUsageBarColor(pct)}`}
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
-                            <p className="mt-1 text-xs text-slate-500">{pct.toFixed(1)}% used</p>
                           </div>
                         );
                       })}

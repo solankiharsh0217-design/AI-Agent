@@ -117,7 +117,7 @@ export async function authMiddleware(authHeader: string | undefined, env: Env): 
     const payload = result.payload;
     const tenantId = (payload.tenant_id as string) ?? (payload.org_id as string) ?? (payload.sub as string);
     const userId = payload.sub as string;
-    const role = (payload.role as string) ?? 'member';
+    const role = (payload.role as string) ?? 'viewer';
 
     if (!userId) {
       return { tenantId: '', userId: '', role: '', error: { code: 'AUTH_REQUIRED', message: 'No user ID in token', status: 401 } };

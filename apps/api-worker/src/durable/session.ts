@@ -642,31 +642,15 @@ case 'POST /messages':
             }
           }
 
-          // Persist both the user message and the assistant reply to D1 so the
-          // conversation history survives the session (mirrors handlePostMessage).
+          // Messages are already persisted by runtime.streamTurn internally.
+          // Only update the conversation bookkeeping counters (tokens not available here).
           try {
             const { ConversationRepository, createDatabase } = await import('@ai-agent/database');
             const db = createDatabase(this.env.DB);
             const convRepo = new ConversationRepository(db as any);
-            await convRepo.addMessage({
-              conversationId: dbSession.conversationId,
-              tenantId: dbSession.tenantId,
-              sessionId: dbSession.id,
-              role: 'user',
-              content: body.content,
-              type: 'text',
-            });
-            await convRepo.addMessage({
-              conversationId: dbSession.conversationId,
-              tenantId: dbSession.tenantId,
-              sessionId: dbSession.id,
-              role: 'assistant',
-              content: fullReply,
-              type: 'text',
-            });
-            await convRepo.incrementMessageCount(dbSession.conversationId, dbSession.tenantId);
+            await convRepo.incrementMessageCount(dbSession.conversationId, dbSession.tenantId, 0, 2);
           } catch (e) {
-            console.error('[stream] Failed to persist messages:', (e as Error).message);
+            console.error('[stream] Failed to update conversation counters:', (e as Error).message);
           }
 
           // Persist session state

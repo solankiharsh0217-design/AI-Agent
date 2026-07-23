@@ -4,6 +4,7 @@ import { requestIdMiddleware, corsMiddleware, securityHeadersMiddleware, logging
 import { rateLimitMiddleware } from './middleware/rate-limit';
 import { tenants } from '@ai-agent/database';
 import { eq } from 'drizzle-orm';
+import { getErrorStatusCode, getErrorCode } from '@ai-agent/shared';
 import agents from './routes/agents';
 import knowledge from './routes/knowledge';
 import conversations from './routes/conversations';
@@ -176,8 +177,6 @@ function widgetOriginAllowed(allowedDomains: unknown, origin: string | undefined
 }
 
 function validateWidgetDomain(allowedDomains: unknown, origin: string | undefined, widgetToken?: string): boolean {
-  // Allow if a widget token is provided (for iframe contexts where Origin may be null)
-  if (widgetToken) return true;
   return widgetOriginAllowed(allowedDomains, origin);
 }
 
@@ -597,7 +596,6 @@ app.route('/api/widgets', widgetsPublic);
   // WebSocket upgrade endpoints
 app.all('/ws/widget', async (c) => {
   const sessionId = c.req.query('sessionId');
-  const queryTenantId = c.req.query('tenantId');
   if (!sessionId) {
     return c.text('Missing sessionId', 400);
   }
@@ -605,26 +603,14 @@ app.all('/ws/widget', async (c) => {
     return c.text('Expected Upgrade: websocket', 426);
   }
 
-  // Authenticate widget token (optional — session-based auth via DO)
-  const widgetToken = c.req.query('token') || c.req.header('Authorization')?.slice(7);
-
   try {
     const { db } = getOrCreateContext(c.env);
-    const { WidgetRepository } = await import('@ai-agent/database');
-    const widgetRepo = new WidgetRepository(db as any);
+    const { SessionRepository } = await import('@ai-agent/database');
+    const sessionRepo = new SessionRepository(db as any);
+    const session = await sessionRepo.findByIdUnscoped(sessionId);
 
-    // If token provided, verify it; otherwise use tenantId from query param (for widget sessions)
-    let tenantId = '';
-    if (widgetToken) {
-      const widget = await widgetRepo.findByIdUnscoped(widgetToken);
-      if (!widget) {
-        return c.text('Invalid widget token', 403);
-      }
-      tenantId = widget.tenantId;
-    } else if (queryTenantId) {
-      // For widget sessions without token, use tenantId from session creation
-      tenantId = queryTenantId;
-    }
+    // Derive tenantId from the session record instead of trusting client-supplied value
+    const tenantId = session?.tenantId ?? '';
 
     let doId;
     try {
@@ -714,15 +700,17 @@ app.notFound((c) => {
 
 // Error handler
 app.onError((err, c) => {
-  logger.error('Unhandled error', { error: err.message, stack: err.stack, requestId: c.get('requestId') });
+  const statusCode = getErrorStatusCode(err);
+  const code = getErrorCode(err);
+  logger.error('Unhandled error', { error: err.message, stack: err.stack, requestId: c.get('requestId'), statusCode, code });
   return c.json({
     success: false,
     error: {
-      code: 'INTERNAL_ERROR',
+      code,
       message: c.env.ENVIRONMENT === 'development' ? err.message : 'Internal server error',
       requestId: c.get('requestId'),
     },
-  }, 500);
+  }, statusCode);
 });
 
 export default app;

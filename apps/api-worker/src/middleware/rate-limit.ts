@@ -30,30 +30,62 @@ export function rateLimitMiddleware(config: Partial<RateLimitConfig> = {}) {
 
     // Use KV for distributed rate limiting across Workers isolates
     if (env.KV) {
-      const stored = await env.KV.get(key);
-      count = stored ? parseInt(stored, 10) : 0;
-      resetAt = (windowKey + 1) * opts.windowMs;
+      try {
+        const stored = await env.KV.get(key);
+        count = stored ? parseInt(stored, 10) : 0;
+        resetAt = (windowKey + 1) * opts.windowMs;
 
-      if (count >= opts.maxRequests) {
-        const retryAfter = Math.ceil((resetAt - Date.now()) / 1000);
-        c.header('X-RateLimit-Limit', String(opts.maxRequests));
-        c.header('X-RateLimit-Remaining', '0');
-        c.header('X-RateLimit-Reset', String(Math.ceil(resetAt / 1000)));
-        c.header('Retry-After', String(retryAfter));
-        return c.json({
-          success: false,
-          error: {
-            code: 'RATE_LIMITED',
-            message: 'Too many requests',
-            retryAfter,
-            requestId: c.get('requestId'),
-          },
-        }, 429);
+        if (count >= opts.maxRequests) {
+          const retryAfter = Math.ceil((resetAt - Date.now()) / 1000);
+          c.header('X-RateLimit-Limit', String(opts.maxRequests));
+          c.header('X-RateLimit-Remaining', '0');
+          c.header('X-RateLimit-Reset', String(Math.ceil(resetAt / 1000)));
+          c.header('Retry-After', String(retryAfter));
+          return c.json({
+            success: false,
+            error: {
+              code: 'RATE_LIMITED',
+              message: 'Too many requests',
+              retryAfter,
+              requestId: c.get('requestId'),
+            },
+          }, 429);
+        }
+
+        // Increment counter with TTL matching the window
+        const ttlSeconds = Math.ceil(opts.windowMs / 1000) + 5; // +5s buffer
+        await env.KV.put(key, String(count + 1), { expirationTtl: ttlSeconds });
+      } catch {
+        // KV outage — fall back to in-memory limiter
+        const now = Date.now();
+        const memKey = `rate:${identifier}:${windowKey}`;
+        const record = inMemoryRateLimits.get(memKey);
+        resetAt = (windowKey + 1) * opts.windowMs;
+
+        if (record && record.resetAt > now) {
+          if (record.count >= opts.maxRequests) {
+            const retryAfter = Math.ceil((record.resetAt - now) / 1000);
+            c.header('X-RateLimit-Limit', String(opts.maxRequests));
+            c.header('X-RateLimit-Remaining', '0');
+            c.header('X-RateLimit-Reset', String(Math.ceil(record.resetAt / 1000)));
+            c.header('Retry-After', String(retryAfter));
+            return c.json({
+              success: false,
+              error: {
+                code: 'RATE_LIMITED',
+                message: 'Too many requests',
+                retryAfter,
+                requestId: c.get('requestId'),
+              },
+            }, 429);
+          }
+          record.count++;
+          count = record.count;
+        } else {
+          inMemoryRateLimits.set(memKey, { count: 1, resetAt: now + IN_MEMORY_WINDOW_MS });
+          count = 1;
+        }
       }
-
-      // Increment counter with TTL matching the window
-      const ttlSeconds = Math.ceil(opts.windowMs / 1000) + 5; // +5s buffer
-      await env.KV.put(key, String(count + 1), { expirationTtl: ttlSeconds });
     } else {
       // In-memory fallback when KV is unavailable
       const now = Date.now();
