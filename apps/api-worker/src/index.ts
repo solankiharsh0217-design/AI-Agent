@@ -710,7 +710,7 @@ app.onError((err, c) => {
       message: c.env.ENVIRONMENT === 'development' ? err.message : 'Internal server error',
       requestId: c.get('requestId'),
     },
-  }, statusCode);
+  }, statusCode as any);
 });
 
 export default app;

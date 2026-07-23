@@ -9,6 +9,7 @@ import {
   pcmRms,
 } from './audio';
 import { createProviderRegistry } from '../context';
+import { UsageTracker } from '@ai-agent/analytics';
 
 /** Per-call state for the Twilio media (phone voice) pipeline. */
 interface VoiceCallState {
@@ -504,15 +505,61 @@ case 'POST /messages':
     return { runtime, runtimeContext, runtimeConfig, agentConfig, registry, dbSession };
   }
 
+  /** Record LLM turn usage via UsageTracker. */
+  private async recordLLMUsage(
+    tenantId: string,
+    agentId: string | undefined,
+    model: string,
+    tokens: number,
+  ): Promise<void> {
+    try {
+      const usageTracker = new UsageTracker(this.env.DB as any);
+      await usageTracker.recordLLMUsage(tenantId, agentId, {
+        inputTokens: tokens,
+        outputTokens: 0,
+        model,
+      });
+    } catch (e) {
+      console.error('[usage] Failed to record LLM usage:', (e as Error).message);
+    }
+  }
+
+  /** Record voice usage (STT/TTS) via UsageTracker. */
+  private async recordVoiceUsage(
+    tenantId: string,
+    agentId: string | undefined,
+    sttMs: number,
+    ttsMs: number,
+  ): Promise<void> {
+    try {
+      const usageTracker = new UsageTracker(this.env.DB as any);
+      if (sttMs) await usageTracker.recordSTTUsage(tenantId, agentId, sttMs);
+      if (ttsMs) await usageTracker.recordTTSUsage(tenantId, agentId, ttsMs);
+    } catch (e) {
+      console.error('[usage] Failed to record voice usage:', (e as Error).message);
+    }
+  }
+
   /** Run one non-streaming agent turn and persist session bookkeeping. Used by text + voice. */
   private async runAgentTurn(content: string): Promise<{ content: string }> {
     const built = await this.buildRuntime();
     if ('error' in built) {
       throw new Error(built.error);
     }
-    const { runtime, runtimeContext, runtimeConfig } = built;
+    const { runtime, runtimeContext, runtimeConfig, dbSession } = built;
 
     const result = await runtime.processTurn(content, runtimeContext, runtimeConfig);
+
+    await this.recordLLMUsage(dbSession.tenantId, dbSession.agentId, runtimeConfig.model, result.tokensUsed);
+
+    try {
+      const { ConversationRepository, createDatabase } = await import('@ai-agent/database');
+      const db = createDatabase(this.env.DB);
+      const convRepo = new ConversationRepository(db as any);
+      await convRepo.incrementMessageCount(dbSession.conversationId, dbSession.tenantId, result.tokensUsed, 2);
+    } catch (e) {
+      console.error('[session] Failed to update conversation counters:', (e as Error).message);
+    }
 
     const state = await this.getState();
     state.messageCount += 2;
@@ -642,13 +689,19 @@ case 'POST /messages':
             }
           }
 
-          // Messages are already persisted by runtime.streamTurn internally.
-          // Only update the conversation bookkeeping counters (tokens not available here).
+          // Record usage via UsageTracker
+          const streamUsage = runtime.lastTurnUsage;
+          if (streamUsage) {
+            await this.recordLLMUsage(dbSession.tenantId, dbSession.agentId, runtimeConfig.model, streamUsage.totalTokens);
+          }
+
+          // Update conversation counters with real token count
           try {
             const { ConversationRepository, createDatabase } = await import('@ai-agent/database');
             const db = createDatabase(this.env.DB);
             const convRepo = new ConversationRepository(db as any);
-            await convRepo.incrementMessageCount(dbSession.conversationId, dbSession.tenantId, 0, 2);
+            const tokens = streamUsage?.totalTokens ?? 0;
+            await convRepo.incrementMessageCount(dbSession.conversationId, dbSession.tenantId, tokens, 2);
           } catch (e) {
             console.error('[stream] Failed to update conversation counters:', (e as Error).message);
           }
@@ -819,6 +872,13 @@ case 'POST /messages':
   private async trackVoiceUsage(sttMs: number, ttsMs: number): Promise<void> {
     if (!sttMs && !ttsMs) return;
     const state = await this.getState();
+
+    // Record voice usage to DB
+    const tenantId = await this.ctx.storage.get<string>('tenantId');
+    if (tenantId) {
+      await this.recordVoiceUsage(tenantId, undefined, sttMs, ttsMs);
+    }
+
     const usage = (state.context.voiceUsage as { sttMs: number; ttsMs: number; utterances: number } | undefined) ?? {
       sttMs: 0,
       ttsMs: 0,
@@ -839,7 +899,7 @@ case 'POST /messages':
       ws.send(JSON.stringify({ type: 'error', message: built.error }));
       return;
     }
-    const { runtime, runtimeContext, runtimeConfig } = built;
+    const { runtime, runtimeContext, runtimeConfig, dbSession } = built;
 
     ws.send(JSON.stringify({
       type: 'typing',
@@ -861,6 +921,23 @@ case 'POST /messages':
             finished: false
           }
         }));
+      }
+
+      // Record usage
+      const streamUsage = runtime.lastTurnUsage;
+      if (streamUsage) {
+        await this.recordLLMUsage(dbSession.tenantId, dbSession.agentId, runtimeConfig.model, streamUsage.totalTokens);
+      }
+
+      // Update conversation counters
+      try {
+        const { ConversationRepository, createDatabase } = await import('@ai-agent/database');
+        const db = createDatabase(this.env.DB);
+        const convRepo = new ConversationRepository(db as any);
+        const tokens = streamUsage?.totalTokens ?? 0;
+        await convRepo.incrementMessageCount(dbSession.conversationId, dbSession.tenantId, tokens, 2);
+      } catch (e) {
+        console.error('[ws] Failed to update conversation counters:', (e as Error).message);
       }
 
       ws.send(JSON.stringify({

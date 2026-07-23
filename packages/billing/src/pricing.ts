@@ -112,6 +112,10 @@ const PLANS: Record<string, PlanConfig> = {
   },
 };
 
+function roundCents(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 export class PricingEngine {
   private plans: Record<string, PlanConfig>;
 
@@ -154,8 +158,8 @@ export class PricingEngine {
       if (!rate) continue;
 
       const overage = Math.max(0, item.quantity - rate.includedUnits);
-      const amount = overage * rate.pricePerUnit;
-      subtotal += amount;
+      const amount = roundCents(overage * rate.pricePerUnit);
+      subtotal = roundCents(subtotal + amount);
 
       lineItems.push({
         description: `${rate.unit} overage (${rate.includedUnits} included)`,
@@ -167,7 +171,7 @@ export class PricingEngine {
     }
 
     const basePrice = plan.basePrice;
-    const total = basePrice + subtotal;
+    const total = roundCents(basePrice + subtotal);
 
     return { lineItems, subtotal, basePrice, total };
   }

@@ -143,24 +143,40 @@ function base64ToBytes(b64: string): Uint8Array {
   return bytes;
 }
 
+/** Find the start of the data chunk in a WAV file, walking RIFF structure. */
+function findDataOffset(wav: Uint8Array): number {
+  const view = new DataView(wav.buffer, wav.byteOffset, wav.byteLength);
+  let offset = 12; // skip RIFF header + file size + WAVE id
+  while (offset + 8 <= wav.length) {
+    const chunkId = new TextDecoder('ascii').decode(wav.subarray(offset, offset + 4));
+    const chunkSize = view.getUint32(offset + 4, true);
+    if (chunkId === 'data') return offset;
+    offset += 8 + chunkSize + (chunkSize % 2); // pad to word boundary
+  }
+  return 44; // fallback to standard header size
+}
+
 // Concatenate multiple single-stream WAV files (same format) into one WAV by
 // keeping the first header and appending only the PCM data of the rest, then
 // rewriting the RIFF/data size fields.
 function mergeWavs(wavs: Uint8Array[]): Uint8Array {
-  const HEADER = 44;
-  const pcmParts = wavs.map((w) => (w.length > HEADER ? w.subarray(HEADER) : new Uint8Array(0)));
+  const headerEnd = findDataOffset(wavs[0]);
+  const pcmParts = wavs.map((w) => {
+    const dataOff = findDataOffset(w);
+    return w.length > dataOff ? w.subarray(dataOff) : new Uint8Array(0);
+  });
   const totalPcm = pcmParts.reduce((n, p) => n + p.length, 0);
 
-  const out = new Uint8Array(HEADER + totalPcm);
-  out.set(wavs[0].subarray(0, HEADER), 0);
-  let offset = HEADER;
+  const out = new Uint8Array(headerEnd + totalPcm);
+  out.set(wavs[0].subarray(0, headerEnd), 0);
+  let offset = headerEnd;
   for (const part of pcmParts) {
     out.set(part, offset);
     offset += part.length;
   }
 
-  const view = new DataView(out.buffer);
-  view.setUint32(4, 36 + totalPcm, true); // RIFF chunk size
-  view.setUint32(40, totalPcm, true); // data chunk size
+  const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  view.setUint32(4, headerEnd - 8 + totalPcm, true); // RIFF chunk size (file size - 8)
+  view.setUint32(headerEnd + 4, totalPcm, true); // data chunk size
   return out;
 }

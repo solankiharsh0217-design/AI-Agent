@@ -1,6 +1,7 @@
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { calls } from '../schema/calls';
 import { phoneNumbers } from '../schema/phone-numbers';
+import { agents } from '../schema/agents';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
 import { generateId } from '../helpers';
 
@@ -81,7 +82,27 @@ export class CallRepository {
   }
 
   async findByTenantId(tenantId: string) {
-    return this.db.select().from(calls)
+    return this.db.select({
+      id: calls.id,
+      tenantId: calls.tenantId,
+      phoneNumberId: calls.phoneNumberId,
+      phoneNumber: phoneNumbers.phoneNumber,
+      agentId: calls.agentId,
+      agentName: agents.name,
+      direction: calls.direction,
+      from: calls.from,
+      to: calls.to,
+      status: calls.status,
+      duration: calls.duration,
+      recordingUrl: calls.recordingUrl,
+      cost: calls.cost,
+      startedAt: calls.startedAt,
+      endedAt: calls.endedAt,
+      createdAt: calls.createdAt,
+      updatedAt: calls.updatedAt,
+    }).from(calls)
+      .leftJoin(phoneNumbers, eq(calls.phoneNumberId, phoneNumbers.id))
+      .leftJoin(agents, eq(calls.agentId, agents.id))
       .where(eq(calls.tenantId, tenantId))
       .orderBy(desc(calls.createdAt));
   }

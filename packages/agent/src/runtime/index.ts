@@ -39,6 +39,7 @@ export interface TurnResult {
 }
 
 export class AgentRuntime {
+  lastTurnUsage?: { promptTokens: number; completionTokens: number; totalTokens: number };
   private llm: LLMProvider;
   private promptBuilder: PromptBuilder;
   private planner: PlannerEngine;
@@ -639,6 +640,8 @@ export class AgentRuntime {
 
     // Trim history if too long
     await this.memory.trimHistory(context.conversationId, context.tenantId, config.memoryConfig);
+
+    this.lastTurnUsage = streamUsage;
 
     // Update session state
     const streamTotalTokens = streamUsage.totalTokens;

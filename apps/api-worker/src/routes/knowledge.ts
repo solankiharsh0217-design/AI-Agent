@@ -151,6 +151,7 @@ knowledge.post('/:id/documents', async (c: Context) => {
   });
 
   await kbRepo.incrementDocumentCount(kb.id, tenantId);
+  await kbRepo.incrementTotalSize(kb.id, file.size, tenantId);
 
   const audit = new AuditLogger(new AuditLogRepository(db));
   await audit.logCreate(

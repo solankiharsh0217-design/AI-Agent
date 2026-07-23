@@ -38,6 +38,9 @@ importers:
       '@ai-agent/agent':
         specifier: workspace:*
         version: link:../../packages/agent
+      '@ai-agent/analytics':
+        specifier: workspace:*
+        version: link:../../packages/analytics
       '@ai-agent/channels':
         specifier: workspace:*
         version: link:../../packages/channels

@@ -212,6 +212,7 @@ export class UsageTracker {
   }
 
   calculateCost(usage: { event: string; quantity: number; provider?: string; metadata?: Record<string, unknown> }): number {
+    let cost = 0;
     switch (usage.event) {
       case 'llm_call': {
         const pricing = PRICING[usage.provider ?? 'llama-3.3-70b-versatile'];
@@ -220,18 +221,24 @@ export class UsageTracker {
         const outputTokens = (usage.metadata?.outputTokens as number) ?? 0;
         const inputCost = (inputTokens / 1_000_000) * (pricing.inputPerMillion ?? 0);
         const outputCost = (outputTokens / 1_000_000) * (pricing.outputPerMillion ?? pricing.inputPerMillion ?? 0);
-        return inputCost + outputCost;
+        cost = inputCost + outputCost;
+        break;
       }
       case 'stt':
-        return usage.quantity * STT_PRICING.perSecond;
+        cost = usage.quantity * STT_PRICING.perSecond;
+        break;
       case 'tts':
-        return usage.quantity * TTS_PRICING.perSecond;
+        cost = usage.quantity * TTS_PRICING.perSecond;
+        break;
       case 'embedding':
-        return usage.quantity * EMBEDDING_PRICING.perToken;
+        cost = usage.quantity * EMBEDDING_PRICING.perToken;
+        break;
       case 'storage':
-        return usage.quantity * STORAGE_PRICING.perGB;
+        cost = usage.quantity * STORAGE_PRICING.perGB;
+        break;
       default:
         return 0;
     }
+    return Math.round(cost * 100) / 100;
   }
 }

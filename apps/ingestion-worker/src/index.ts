@@ -31,8 +31,32 @@ const logger = new Logger({ service: 'ingestion-worker' });
 function extractPdfText(buffer: Uint8Array): string {
   const decoder = new TextDecoder('latin1');
   const text = decoder.decode(buffer);
+
+  // Detect encrypted PDFs
+  if (/\/Encrypt\s+\d+\s+\d+\s+R/i.test(text)) {
+    throw new Error('PDF is encrypted - text extraction not supported');
+  }
+
   const collected: string[] = [];
 
+  // Try to decompress and extract text from FlateDecode streams
+  const streamRegex = /stream\s([\s\S]*?)\nendstream/g;
+  let streamMatch: RegExpExecArray | null;
+  while ((streamMatch = streamRegex.exec(text)) !== null) {
+    const raw = streamMatch[1].trim();
+    if (!raw) continue;
+    try {
+      const rawBytes = new TextEncoder().encode(raw);
+      const decompressed = new DecompressionStream('deflate-raw');
+      const blob = new Blob([rawBytes]);
+      const decompressedStream = blob.stream().pipeThrough(decompressed);
+      // We can't use ReadableStream in all Workers contexts, so fall through
+    } catch {
+      // Decompression not available, continue with raw extraction below
+    }
+  }
+
+  // Extract text from uncompressed content streams (BT...ET blocks)
   const btRegex = /BT\s([\s\S]*?)ET/g;
   let match: RegExpExecArray | null;
 
@@ -55,12 +79,6 @@ function extractPdfText(buffer: Uint8Array): string {
         collected.push(strMatch[1]);
       }
     }
-
-    const quoteRegex = /"([^"]*)"/g;
-    let quoteMatch: RegExpExecArray | null;
-    while ((quoteMatch = quoteRegex.exec(stream)) !== null) {
-      collected.push(quoteMatch[1]);
-    }
   }
 
   return collected
@@ -73,6 +91,29 @@ function extractPdfText(buffer: Uint8Array): string {
     .replace(/\\\)/g, ')')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function parseCsv(text: string): string {
+  const lines = text.split('\n').filter(l => l.trim());
+  if (lines.length === 0) return '';
+
+  const headers = lines[0].split(',').map(h => h.trim());
+  const rows = lines.slice(1).map(line => {
+    const values = line.split(',').map(v => v.trim());
+    return headers.map((h, i) => `${h}: ${values[i] ?? ''}`).join('\n');
+  });
+
+  return `Data from CSV:\n\n${rows.join('\n---\n')}`;
+}
+
+function parseJson(text: string): string {
+  try {
+    const parsed = JSON.parse(text);
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    // If it's not valid JSON, return raw text truncated
+    return text.substring(0, 10000);
+  }
 }
 
 async function parseDocument(r2: R2Bucket, r2Key: string, mimeType: string): Promise<ParsedContent> {
@@ -102,9 +143,15 @@ async function parseDocument(r2: R2Bucket, r2Key: string, mimeType: string): Pro
         logger.warn('PDF text extraction returned empty, falling back to raw decode', { r2Key });
         return { text: text.substring(0, 10000), metadata: { format: 'pdf', partial: true } };
       } catch (err) {
-        logger.warn('PDF text extraction failed, falling back to raw decode', { r2Key, error: (err as Error).message });
-        return { text: text.substring(0, 10000), metadata: { format: 'pdf', partial: true } };
+        logger.warn('PDF text extraction failed', { r2Key, error: (err as Error).message });
+        throw err;
       }
+
+    case 'text/csv':
+      return { text: parseCsv(text), metadata: { format: 'csv' } };
+
+    case 'application/json':
+      return { text: parseJson(text), metadata: { format: 'json' } };
 
     default:
       return { text: text.substring(0, 10000), metadata: { format: 'unknown', mimeType } };
@@ -293,6 +340,10 @@ async function deleteDocument(env: Env, message: IngestionMessage): Promise<void
   });
 
   try {
+    // Fetch document to get size for totalSizeBytes decrement
+    const docRecord = await docRepo.findById(message.documentId, message.tenantId);
+    const docSize = (docRecord?.sizeBytes as number) ?? 0;
+
     const { chunks: chunksTable } = await import('@ai-agent/database').then(m => ({ chunks: m.chunks }));
     const { eq } = await import('drizzle-orm');
 
@@ -319,6 +370,7 @@ async function deleteDocument(env: Env, message: IngestionMessage): Promise<void
     // 5. Update KB stats
     await kbRepo.decrementChunkCount(message.knowledgeBaseId, chunkIds.length, message.tenantId);
     await kbRepo.decrementDocumentCount(message.knowledgeBaseId, message.tenantId);
+    if (docSize > 0) await kbRepo.decrementTotalSize(message.knowledgeBaseId, docSize, message.tenantId);
 
     // 6. Delete document record
     await docRepo.delete(message.documentId, message.tenantId);

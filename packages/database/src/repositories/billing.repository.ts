@@ -143,6 +143,14 @@ export class InvoiceRepository {
       .orderBy(desc(invoices.createdAt));
   }
 
+  async findBySubscriptionId(subscriptionId: string, tenantId: string) {
+    const row = await this.db.select().from(invoices)
+      .where(and(eq(invoices.subscriptionId, subscriptionId), eq(invoices.tenantId, tenantId)))
+      .orderBy(desc(invoices.createdAt))
+      .limit(1);
+    return row[0] ?? null;
+  }
+
   async update(id: string, tenantId: string, data: Partial<{ status: 'draft' | 'open' | 'paid' | 'void' | 'uncollectible'; amountPaid: number; paidAt: Date; hostedInvoiceUrl: string; stripeInvoiceId: string }>) {
     const updateData: Record<string, unknown> = {};
     if (data.status !== undefined) updateData.status = data.status;

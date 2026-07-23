@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ai-agent/agent": "workspace:*",
+    "@ai-agent/analytics": "workspace:*",
     "@ai-agent/channels": "workspace:*",
     "@ai-agent/database": "workspace:*",
     "@ai-agent/providers": "workspace:*",

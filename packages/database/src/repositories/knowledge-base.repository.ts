@@ -78,4 +78,18 @@ export class KnowledgeBaseRepository {
       updatedAt: new Date(),
     }).where(and(eq(knowledgeBases.id, id), eq(knowledgeBases.tenantId, tenantId)));
   }
+
+  async incrementTotalSize(id: string, bytes: number, tenantId: string) {
+    await this.db.update(knowledgeBases).set({
+      totalSizeBytes: sql`${knowledgeBases.totalSizeBytes} + ${bytes}`,
+      updatedAt: new Date(),
+    }).where(and(eq(knowledgeBases.id, id), eq(knowledgeBases.tenantId, tenantId)));
+  }
+
+  async decrementTotalSize(id: string, bytes: number, tenantId: string) {
+    await this.db.update(knowledgeBases).set({
+      totalSizeBytes: sql`MAX(0, ${knowledgeBases.totalSizeBytes} - ${bytes})`,
+      updatedAt: new Date(),
+    }).where(and(eq(knowledgeBases.id, id), eq(knowledgeBases.tenantId, tenantId)));
+  }
 }

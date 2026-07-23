@@ -74,32 +74,65 @@ export class WebhookHandler {
 
   async handleRazorpayWebhook(eventData: RazorpayWebhookPayload): Promise<{ handled: boolean }> {
     const subEntity = eventData.payload.subscription?.entity;
-    if (!subEntity) {
-      return { handled: false };
-    }
-
-    const razorpaySubId = subEntity.id;
 
     switch (eventData.event) {
       case 'subscription.activated':
       case 'subscription.charged':
-        await this.updateSubscriptionStatus(razorpaySubId, 'active', subEntity);
+        if (!subEntity) return { handled: false };
+        await this.updateSubscriptionStatus(subEntity.id, 'active', subEntity);
         return { handled: true };
 
       case 'subscription.pending':
-        await this.updateSubscriptionStatus(razorpaySubId, 'past_due', subEntity);
+        if (!subEntity) return { handled: false };
+        await this.updateSubscriptionStatus(subEntity.id, 'past_due', subEntity);
         return { handled: true };
 
       case 'subscription.halted':
-        await this.updateSubscriptionStatus(razorpaySubId, 'paused', subEntity);
+        if (!subEntity) return { handled: false };
+        await this.updateSubscriptionStatus(subEntity.id, 'paused', subEntity);
         return { handled: true };
 
       case 'subscription.cancelled':
-        await this.updateSubscriptionStatus(razorpaySubId, 'canceled', subEntity);
+        if (!subEntity) return { handled: false };
+        await this.updateSubscriptionStatus(subEntity.id, 'canceled', subEntity);
         return { handled: true };
+
+      case 'payment.captured': {
+        const payEntity = eventData.payload.payment?.entity;
+        if (!payEntity) return { handled: false };
+        const razorpaySubId = subEntity?.id;
+        if (razorpaySubId) {
+          await this.updateInvoiceStatus(razorpaySubId, payEntity.amount, payEntity.currency);
+        }
+        return { handled: true };
+      }
+
+      case 'payment.failed': {
+        const failEntity = eventData.payload.payment?.entity;
+        if (!failEntity) return { handled: false };
+        const razorpaySubId = subEntity?.id;
+        if (razorpaySubId) {
+          await this.updateInvoiceStatus(razorpaySubId, failEntity.amount, failEntity.currency);
+        }
+        return { handled: true };
+      }
 
       default:
         return { handled: false };
+    }
+  }
+
+  private async updateInvoiceStatus(razorpaySubId: string, amount: number, currency: string): Promise<void> {
+    const sub = await (this.subscriptionRepo as any).findByExternalSubscriptionId(razorpaySubId);
+    if (!sub) return;
+
+    const existing = await this.invoiceRepo.findBySubscriptionId(sub.id, sub.tenantId);
+    if (existing) {
+      await this.invoiceRepo.update(existing.id, sub.tenantId, {
+        amountPaid: amount / 100,
+        status: 'paid',
+        paidAt: new Date(),
+      });
     }
   }
 
