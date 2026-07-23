@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { Context } from 'hono';
 import { ConversationRepository, AuditLogRepository } from '@ai-agent/database';
 import { AuditLogger } from '@ai-agent/shared';
+import { requirePermission } from '../middleware';
 
 const conversations = new Hono();
 
@@ -28,6 +29,8 @@ conversations.get('/:id', async (c: Context) => {
 });
 
 conversations.delete('/:id', async (c: Context) => {
+  const denied = requirePermission(c, 'manage:conversations');
+  if (denied) return denied;
   const tenantId = c.get('tenantId') as string;
   const userId = c.get('userId') as string | undefined;
   const db = c.get('db');

@@ -18,6 +18,7 @@ export const PERMISSIONS = [
   'manage:billing',
   'manage:phone',
   'manage:team',
+  'manage:conversations',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -35,6 +36,7 @@ const rolePermissions: Record<Role, Permission[]> = {
     'update:widget',
     'delete:widget',
     'view:analytics',
+    'manage:conversations',
     'manage:phone',
   ],
   member: [
@@ -48,6 +50,7 @@ const rolePermissions: Record<Role, Permission[]> = {
     'update:widget',
     'delete:widget',
     'view:analytics',
+    'manage:conversations',
   ],
   viewer: ['view:analytics'],
 };

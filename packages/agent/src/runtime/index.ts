@@ -309,6 +309,7 @@ export class AgentRuntime {
 
       // 12. Update session state
       const totalTokens = llmResponse.usage.total_tokens;
+      this.lastTurnUsage = { promptTokens: llmResponse.usage.prompt_tokens, completionTokens: llmResponse.usage.completion_tokens, totalTokens };
       await this.sessionManager.updateSessionState(context.sessionId, context.tenantId, {
         messageCount: history.length + 2,
         tokenUsage: {
