@@ -2,10 +2,10 @@
 import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useRef } from 'react';
-import { api, setClerkToken } from '@/lib/api';
+import { api } from '@/lib/api';
 
 export default function KnowledgeBaseDetailPage({ params }: { params: { id: string } }) {
-  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const { isLoaded, isSignedIn } = useAuth();
   const router = useRouter();
   const [kb, setKb] = useState<any>(null);
   const [documents, setDocuments] = useState<any[]>([]);
@@ -14,10 +14,22 @@ export default function KnowledgeBaseDetailPage({ params }: { params: { id: stri
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (isLoaded && !isSignedIn) { router.push('/sign-in'); return; }
-    getToken().then(t => { setClerkToken(t); loadData(); });
+    if (isLoaded && isSignedIn) {
+      loadData();
+    }
   }, [params.id, isLoaded, isSignedIn]);
 
   async function loadData() {
@@ -43,14 +55,15 @@ export default function KnowledgeBaseDetailPage({ params }: { params: { id: stri
     setUploading(true);
     setUploadProgress(0);
 
-    const progressInterval = setInterval(() => {
+    progressIntervalRef.current = setInterval(() => {
       setUploadProgress(prev => prev !== null && prev < 90 ? prev + 10 : prev);
     }, 200);
 
     try {
       const result = await api.knowledge.uploadDocument(params.id, file);
 
-      clearInterval(progressInterval);
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
       setUploadProgress(100);
 
       if (result.success) {
@@ -58,7 +71,8 @@ export default function KnowledgeBaseDetailPage({ params }: { params: { id: stri
         await loadData();
       }
     } catch (err) {
-      clearInterval(progressInterval);
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
       console.error('Upload failed:', err);
       alert('Upload failed');
     } finally {

@@ -41,8 +41,7 @@ export function AnalyticsContent() {
     let cancelled = false;
     async function loadAnalytics() {
       try {
-        const [, usageData, costData] = await Promise.all([
-          api.analytics.get(dateRange),
+        const [usageData, costData] = await Promise.all([
           api.analytics.getUsage(dateRange),
           api.analytics.getCost(dateRange),
         ]);

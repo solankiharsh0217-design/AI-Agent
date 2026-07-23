@@ -105,6 +105,13 @@ export class TokenService {
       base64UrlDecode(encodedPayload)
     );
 
+    if (payload.iss !== 'ai-agent-platform') {
+      throw new AuthError('Invalid widget token issuer');
+    }
+    if (payload.aud !== 'widget') {
+      throw new AuthError('Invalid widget token audience');
+    }
+
     const now = Math.floor(Date.now() / 1000);
     if (payload.exp < now) {
       throw new AuthError('Widget token has expired');

@@ -194,7 +194,7 @@ function uint8ToBase64(bytes: Uint8Array): string {
 // is embedded on arbitrary customer sites, so we reflect the request Origin only when it
 // matches that widget's own configured `domains` allow-list. Also answers preflight.
 widgetsPublic.use('*', async (c, next) => {
-  const origin = c.req.header('Origin');
+  const origin = c.req.header('X-Parent-Origin') || c.req.header('Origin');
   if (origin) {
     // Check if the origin is one of our system allowed origins (e.g., widget host, dashboard host)
     const systemAllowed = c.env.ALLOWED_ORIGINS?.split(',').map((s: string) => s.trim()).filter(Boolean) ?? [];
@@ -282,7 +282,7 @@ widgetsPublic.post('/:id/sessions', async (c) => {
 
   const sessionRepo = new SessionRepository(db as any);
 
-  const activeSessions = await sessionRepo.findByAgentId(widget.agentId, widget.tenantId);
+  const activeSessions = await sessionRepo.findByAgentId(widget.agentId, widget.tenantId, MAX_WIDGET_SESSIONS + 1);
   const activeCount = activeSessions.filter((s: { status?: string }) => s.status !== 'ended' && s.status !== 'expired').length;
   if (activeCount >= MAX_WIDGET_SESSIONS) {
     return c.json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many active sessions for this widget' } }, 429);

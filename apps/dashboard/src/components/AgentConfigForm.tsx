@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
 
 const MODELS = [
@@ -194,14 +194,13 @@ export function AgentConfigForm({
   const [knowledgeBases, setKnowledgeBases] = useState<{ id: string; name: string }[]>([]);
   const [kbLoading, setKbLoading] = useState(true);
 
-  // Load knowledge bases once for the multi-select.
-  useState(() => {
+  useEffect(() => {
     api.knowledge
       .list()
       .then((kbs) => setKnowledgeBases((kbs || []).map((k: any) => ({ id: k.id, name: k.name }))))
       .catch(() => {})
       .finally(() => setKbLoading(false));
-  });
+  }, []);
 
   const patch = (p: Partial<AgentFormConfig>) => setForm((prev) => ({ ...prev, ...p }));
   const patchVoice = (p: any) =>

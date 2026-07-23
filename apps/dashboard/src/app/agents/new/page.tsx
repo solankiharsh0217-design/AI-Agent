@@ -2,12 +2,12 @@
 import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { api, setClerkToken } from '@/lib/api';
+import { api } from '@/lib/api';
 import { PageContainer, PageHeader, FormError } from '@/components/ui';
 import { AgentConfigForm, defaultAgentFormConfig, formToConfig, AgentFormConfig } from '@/components/AgentConfigForm';
 
 export default function NewAgentPage() {
-  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const { isLoaded, isSignedIn } = useAuth();
   const router = useRouter();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -17,7 +17,6 @@ export default function NewAgentPage() {
 
   useEffect(() => {
     if (isLoaded && !isSignedIn) { router.push('/sign-in'); return; }
-    getToken().then((t) => setClerkToken(t));
   }, [isLoaded, isSignedIn]);
 
   async function handleCreate() {

@@ -2,7 +2,7 @@
 import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { api, setClerkToken } from '@/lib/api';
+import { api } from '@/lib/api';
 import { PageContainer, PageHeader, FormError } from '@/components/ui';
 
 interface Agent { id: string; name: string; }
@@ -31,7 +31,7 @@ const BASE_CONFIG = {
 };
 
 export default function NewWidgetPage() {
-  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const { isLoaded, isSignedIn } = useAuth();
   const router = useRouter();
   const [name, setName] = useState('');
   const [agentId, setAgentId] = useState('');
@@ -49,8 +49,9 @@ export default function NewWidgetPage() {
 
   useEffect(() => {
     if (isLoaded && !isSignedIn) { router.push('/sign-in'); return; }
-    getToken().then((t) => setClerkToken(t));
-    api.agents.list().then(setAgents).catch(() => {});
+    if (isLoaded && isSignedIn) {
+      api.agents.list().then(setAgents).catch(() => {});
+    }
   }, [isLoaded, isSignedIn]);
 
   async function handleCreate() {

@@ -3,7 +3,7 @@ import { useAuth } from '@clerk/nextjs';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { api, setClerkToken } from '@/lib/api';
+import { api } from '@/lib/api';
 import { FormError } from '@/components/ui';
 import { AgentConfigForm, configToForm, defaultAgentFormConfig, formToConfig, AgentFormConfig } from '@/components/AgentConfigForm';
 
@@ -26,7 +26,7 @@ function langLabel(code?: string) {
 }
 
 export default function AgentDetailPage({ params }: { params: { id: string } }) {
-  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const { isLoaded, isSignedIn } = useAuth();
   const router = useRouter();
   const [agent, setAgent] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -42,11 +42,10 @@ export default function AgentDetailPage({ params }: { params: { id: string } }) 
 
   useEffect(() => {
     if (isLoaded && !isSignedIn) { router.push('/sign-in'); return; }
-    getToken().then((t) => {
-      setClerkToken(t);
+    if (isLoaded && isSignedIn) {
       loadAgent();
       loadChannels();
-    });
+    }
   }, [params.id, isLoaded, isSignedIn]);
 
   function toForm(data: any) {

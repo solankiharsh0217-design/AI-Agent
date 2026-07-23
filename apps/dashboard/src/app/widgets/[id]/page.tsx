@@ -2,7 +2,7 @@
 import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { api, setClerkToken } from '@/lib/api';
+import { api } from '@/lib/api';
 import { FormError } from '@/components/ui';
 
 const WIDGET_APP_URL = process.env.NEXT_PUBLIC_WIDGET_URL || '';
@@ -52,7 +52,7 @@ function mergeConfig(serverConfig: any) {
 }
 
 export default function WidgetDetailPage({ params }: { params: { id: string } }) {
-  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const { isLoaded, isSignedIn } = useAuth();
   const router = useRouter();
   const [widget, setWidget] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -69,7 +69,9 @@ export default function WidgetDetailPage({ params }: { params: { id: string } })
 
   useEffect(() => {
     if (isLoaded && !isSignedIn) { router.push('/sign-in'); return; }
-    getToken().then((t) => { setClerkToken(t); loadWidget(); });
+    if (isLoaded && isSignedIn) {
+      loadWidget();
+    }
   }, [params.id, isLoaded, isSignedIn]);
 
   async function loadWidget() {

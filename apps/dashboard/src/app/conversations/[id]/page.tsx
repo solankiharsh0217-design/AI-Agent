@@ -2,10 +2,10 @@
 import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { api, setClerkToken } from '@/lib/api';
+import { api } from '@/lib/api';
 
 export default function ConversationDetailPage({ params }: { params: { id: string } }) {
-  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const { isLoaded, isSignedIn } = useAuth();
   const router = useRouter();
   const [messages, setMessages] = useState<any[]>([]);
   const [conversation, setConversation] = useState<any>(null);
@@ -14,7 +14,9 @@ export default function ConversationDetailPage({ params }: { params: { id: strin
 
   useEffect(() => {
     if (isLoaded && !isSignedIn) { router.push('/sign-in'); return; }
-    getToken().then(t => { setClerkToken(t); loadData(); });
+    if (isLoaded && isSignedIn) {
+      loadData();
+    }
   }, [params.id, isLoaded, isSignedIn]);
 
   async function loadData() {
@@ -26,7 +28,7 @@ export default function ConversationDetailPage({ params }: { params: { id: strin
         api.conversations.getMessages(params.id),
       ]);
       setConversation(convData);
-      setMessages(msgData);
+      setMessages(msgData.reverse());
     } catch (e: any) {
       setError(e.message);
     } finally {

@@ -39,10 +39,12 @@ export class SessionRepository {
       .orderBy(desc(sessions.createdAt));
   }
 
-  async findByAgentId(agentId: string, tenantId: string) {
-    return this.db.select().from(sessions)
+  async findByAgentId(agentId: string, tenantId: string, maxResults?: number) {
+    let query = this.db.select().from(sessions)
       .where(and(eq(sessions.agentId, agentId), eq(sessions.tenantId, tenantId)))
-      .orderBy(desc(sessions.createdAt));
+      .orderBy(desc(sessions.createdAt)) as any;
+    if (maxResults) query = query.limit(maxResults);
+    return query;
   }
 
   async updateState(id: string, tenantId: string, state: Record<string, unknown>) {
