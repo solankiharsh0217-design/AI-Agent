@@ -312,6 +312,82 @@ message: err.message || 'Internal server error',  // temp debug
 
 ---
 
+## TEST STATUS (as of July 2026)
+
+All tests pass: **69 tests across 5 packages**
+
+| Package | Tests | Coverage |
+|---------|-------|----------|
+| `@ai-agent/agent` | 4 | MiddlewareChain, AgentRuntime processTurn + streamTurn |
+| `@ai-agent/auth` | 16 | PermissionChecker (8), TokenService generate/verify (8) |
+| `@ai-agent/billing` | 16 | WebhookHandler (5), PricingEngine (11) |
+| `@ai-agent/shared` | 20 | Error hierarchy, getErrorStatusCode, getErrorCode |
+| `@ai-agent/analytics` | 13 | UsageTracker cost calculation + all recording methods |
+
+### Run tests
+```bash
+pnpm test                           # all packages (turbo)
+pnpm --filter @ai-agent/auth test   # single package
+```
+
+---
+
+## BUG FIX SUMMARY (Phases 1-4 + Follow-up)
+
+### Fixed (51+ bugs across 4 phases)
+| Phase | Scope | Bugs Fixed |
+|-------|-------|------------|
+| 1 — Critical | Ingestion, analytics wiring, currency rounding | 7 |
+| 2 — Functional | Call History JOINs, Razorpay webhooks, WAV merge, storage tracking | 5 |
+| 3 — UI/UX | Auth guards, cancel button, permissions, layout, error banners | 20 |
+| 4 — Cleanup | Dead code, side effects, CORS, queries, token validation | 11 |
+| Follow-up | Conversation permissions, processTurn lastTurnUsage, test suite | 8 |
+
+### Known issues NOT yet fixed (deployable — non-blocking)
+| Issue | Severity | Notes |
+|-------|----------|-------|
+| Widget domain allow-list bypassed by `widgetToken` | Security | Needs `signedSecret` column wired up |
+| `/ws/widget` trusts client-supplied `tenantId` | Security | Architectural change in DO binding |
+| Cancel subscription revokes immediately (not period-end) | Billing | `findActiveByTenantId` excludes `canceled` status |
+| Duplicate message persistence on voice/stream turns | Data | session.ts double-writes after runtime |
+| Public SDK (`packages/sdk`) non-functional | SDK | Widget app lacks `postMessage` handlers |
+| Runtime test coverage limited to mock-based paths | Quality | No integration tests with real LLM |
+
+---
+
+## DEPLOYMENT READINESS CHECKLIST
+
+### Pre-deployment
+- [x] All TypeScript packages typecheck clean (15/15)
+- [x] All 69 tests pass (5/5 test packages)
+- [x] Bug fixes committed to `main`
+- [x] Secrets documented in this file
+
+### Deployment order
+1. **API Worker** (`apps/api-worker`) — Cloudflare Workers
+   - `wrangler secret put` all 10 secrets
+   - `wrangler deploy`
+2. **Ingestion Worker** (`apps/ingestion-worker`) — Cloudflare Workers
+   - `wrangler deploy`
+3. **Dashboard** (`apps/dashboard`) — Vercel
+   - Build with workspace dependency workaround (see Step 7)
+   - Set 8 environment variables
+4. **Widget** (`apps/widget`) — Vercel
+   - Build and deploy
+   - Set `NEXT_PUBLIC_API_URL`
+
+### Post-deployment verification
+- [ ] Create tenant account via Clerk sign-in
+- [ ] Create agent, verify LLM responds
+- [ ] Upload document to knowledge base, verify ingestion
+- [ ] Create widget, verify embed script loads
+- [ ] Verify analytics data populates (after usage)
+- [ ] Test billing checkout with Razorpay test mode
+- [ ] Verify WebSocket chat works via widget
+- [ ] Test phone number assignment (if Twilio configured)
+
+---
+
 ## FILE STRUCTURE
 
 ```
